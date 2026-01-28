@@ -20,7 +20,17 @@ Use this skill when:
 
 Most concurrency problems can be solved with `async/await`. Only reach for more sophisticated tools when you have a specific need that async/await can't address cleanly.
 
-**Avoid locks and manual synchronization.** Unless you're building infrastructure-level code, locks are a code smell. They're hard to get right, easy to deadlock, and don't compose well. There's almost always a better abstraction.
+**Try to avoid shared mutable state.** The best way to handle concurrency is to design it away. Immutable data, message passing, and isolated state (like actors) eliminate entire categories of bugs.
+
+**Locks should be the exception, not the rule.** When you can't avoid shared mutable state, using a lock occasionally isn't the end of the world. But if you find yourself reaching for `lock`, `SemaphoreSlim`, or other synchronization primitives regularly, step back and reconsider your design.
+
+When you truly need shared mutable state:
+1. **First choice:** Redesign to avoid it (immutability, message passing, actor isolation)
+2. **Second choice:** Use `System.Collections.Concurrent` (ConcurrentDictionary, ConcurrentQueue, etc.)
+3. **Third choice:** Use `Channel<T>` to serialize access through message passing
+4. **Last resort:** Use `lock` for simple, short-lived critical sections
+
+Locks are appropriate when building low-level infrastructure or concurrent data structures. But for business logic, there's almost always a better abstraction.
 
 ---
 
