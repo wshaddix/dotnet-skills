@@ -34,11 +34,5 @@
     "./skills/testing/crap-analysis",
     "./skills/testing/snapshot-testing"
   ],
-  "agents": [
-    "./agents/akka-net-specialist",
-    "./agents/docfx-specialist",
-    "./agents/dotnet-benchmark-designer",
-    "./agents/dotnet-concurrency-specialist",
-    "./agents/dotnet-performance-analyst"
-  ]
+  "agents": "./agents/"
 }

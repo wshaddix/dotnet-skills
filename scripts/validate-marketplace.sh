@@ -43,7 +43,7 @@ while IFS= read -r source; do
     if [ ! -f "$file" ]; then
         echo -e "${RED}ERROR: Missing SKILL.md for: $source${NC}"
         echo -e "${RED}       Expected: $file${NC}"
-        ((errors++))
+        ((++errors))
     else
         # Extract skill name from SKILL.md frontmatter
         skill_name=$(grep "^name:" "$file" | head -1 | sed 's/^name: *//')
@@ -54,19 +54,41 @@ done < <(jq -r '.skills[]' "$PLUGIN_JSON")
 # Check agent references
 echo ""
 echo "Checking agents..."
-while IFS= read -r source; do
-    # Remove leading ./ if present
-    clean_source="${source#./}"
-    file="$REPO_ROOT/${clean_source}.md"
+agents_value=$(jq -r '.agents' "$PLUGIN_JSON")
+agents_type=$(jq -r '.agents | type' "$PLUGIN_JSON")
 
-    if [ ! -f "$file" ]; then
-        echo -e "${RED}ERROR: Missing agent file: $file${NC}"
-        ((errors++))
+if [ "$agents_type" = "string" ]; then
+    # agents is a directory path
+    clean_dir="${agents_value#./}"
+    agents_dir="$REPO_ROOT/${clean_dir}"
+
+    if [ ! -d "$agents_dir" ]; then
+        echo -e "${RED}ERROR: Missing agents directory: $agents_dir${NC}"
+        ((++errors))
     else
-        agent_name=$(grep "^name:" "$file" | head -1 | sed 's/^name: *//')
-        echo -e "${GREEN}OK: $agent_name${NC}"
+        for file in "$agents_dir"/*.md; do
+            if [ -f "$file" ]; then
+                agent_name=$(grep "^name:" "$file" | head -1 | sed 's/^name: *//')
+                echo -e "${GREEN}OK: $agent_name${NC}"
+            fi
+        done
     fi
-done < <(jq -r '.agents[]' "$PLUGIN_JSON")
+elif [ "$agents_type" = "array" ]; then
+    # agents is an array of paths
+    while IFS= read -r source; do
+        # Remove leading ./ if present
+        clean_source="${source#./}"
+        file="$REPO_ROOT/${clean_source}.md"
+
+        if [ ! -f "$file" ]; then
+            echo -e "${RED}ERROR: Missing agent file: $file${NC}"
+            ((++errors))
+        else
+            agent_name=$(grep "^name:" "$file" | head -1 | sed 's/^name: *//')
+            echo -e "${GREEN}OK: $agent_name${NC}"
+        fi
+    done < <(jq -r '.agents[]' "$PLUGIN_JSON")
+fi
 
 # Check for unregistered skills (find all SKILL.md files)
 echo ""
@@ -78,29 +100,39 @@ while IFS= read -r file; do
 
     if ! jq -e --arg src "$source" '.skills[] | select(. == $src)' "$PLUGIN_JSON" > /dev/null 2>&1; then
         echo -e "${YELLOW}WARNING: Skill not in plugin.json: $source${NC}"
-        ((warnings++))
+        ((++warnings))
     fi
 done < <(find "$REPO_ROOT/skills" -name "SKILL.md" 2>/dev/null)
 
 # Check for unregistered agents
 echo ""
 echo "Checking for unregistered agents..."
-for file in "$REPO_ROOT"/agents/*.md; do
-    if [ -f "$file" ]; then
-        basename=$(basename "$file" .md)
-        source="./agents/$basename"
-        if ! jq -e --arg src "$source" '.agents[] | select(. == $src)' "$PLUGIN_JSON" > /dev/null 2>&1; then
-            echo -e "${YELLOW}WARNING: Agent file not in plugin.json: $basename${NC}"
-            ((warnings++))
+if [ "$agents_type" = "string" ]; then
+    # When agents is a directory, all .md files in that directory are automatically included
+    echo -e "${GREEN}Using directory mode: all agents in ${agents_value} are included${NC}"
+elif [ "$agents_type" = "array" ]; then
+    for file in "$REPO_ROOT"/agents/*.md; do
+        if [ -f "$file" ]; then
+            basename=$(basename "$file" .md)
+            source="./agents/$basename"
+            if ! jq -e --arg src "$source" '.agents[] | select(. == $src)' "$PLUGIN_JSON" > /dev/null 2>&1; then
+                echo -e "${YELLOW}WARNING: Agent file not in plugin.json: $basename${NC}"
+                ((++warnings))
+            fi
         fi
-    fi
-done
+    done
+fi
 
 # Summary
 echo ""
 echo "=== Summary ==="
 echo "Skills registered: $(jq '.skills | length' "$PLUGIN_JSON")"
-echo "Agents registered: $(jq '.agents | length' "$PLUGIN_JSON")"
+if [ "$agents_type" = "string" ]; then
+    agents_count=$(find "$agents_dir" -name "*.md" 2>/dev/null | wc -l)
+    echo "Agents registered: $agents_count (directory mode: $agents_value)"
+else
+    echo "Agents registered: $(jq '.agents | length' "$PLUGIN_JSON")"
+fi
 echo "Plugin version: $(jq -r '.version' "$PLUGIN_JSON")"
 
 if [ $errors -gt 0 ]; then

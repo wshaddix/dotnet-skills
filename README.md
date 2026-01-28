@@ -4,16 +4,18 @@ A comprehensive Claude Code plugin with **25 skills** and **5 specialized agents
 
 ## Installation
 
-```bash
-# Add the marketplace (one-time)
+Add the marketplace (one-time):
+```
 /plugin marketplace add Aaronontheweb/dotnet-skills
+```
 
-# Install the plugin
+Install the plugin:
+```
 /plugin install dotnet-skills
 ```
 
 To update:
-```bash
+```
 /plugin marketplace update
 ```
 
@@ -138,11 +140,11 @@ dotnet-skills/
 ├── .claude-plugin/
 │   └── plugin.json         # Plugin manifest
 ├── agents/                 # 5 specialized agents
-│   ├── akka-net-specialist/
-│   ├── docfx-specialist/
-│   ├── dotnet-benchmark-designer/
-│   ├── dotnet-concurrency-specialist/
-│   └── dotnet-performance-analyst/
+│   ├── akka-net-specialist.md
+│   ├── docfx-specialist.md
+│   ├── dotnet-benchmark-designer.md
+│   ├── dotnet-concurrency-specialist.md
+│   └── dotnet-performance-analyst.md
 └── skills/                 # 25 comprehensive skills
     ├── akka/               # Akka.NET (5 skills)
     ├── aspire/             # .NET Aspire (2 skills)
