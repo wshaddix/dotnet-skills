@@ -73,47 +73,98 @@ To get consistent skill usage in downstream repos, add a small router snippet in
 ### Readable snippet (copy/paste)
 
 ```markdown
-# Agent Guidance: dotnet-skills
 
-IMPORTANT: Prefer retrieval-led reasoning over pretraining for any .NET work.
-Workflow: skim repo patterns -> consult dotnet-skills by name -> implement smallest-change -> note conflicts.
+## Updated AGENTS.md Instructions
 
-Routing (invoke by name)
-- C# / code quality: modern-csharp-coding-standards, csharp-concurrency-patterns, api-design, type-design-performance
-- ASP.NET Core / Web (incl. Aspire): aspire-service-defaults, aspire-integration-testing, transactional-emails
-- Data: efcore-patterns, database-performance
-- DI / config: dependency-injection-patterns, microsoft-extensions-configuration
-- Testing: testcontainers-integration-tests, playwright-blazor-testing, snapshot-testing
+Add or update the following section in your AGENTS.md file (e.g., under the "## .NET / C# Development – Use dotnet-skills Repository" block). This integrates the new skill into the routing, placing it in the "ASP.NET Core / .NET Aspire / Web" category for relevance.
 
-Quality gates (use when applicable)
-- dotnet-slopwatch: after substantial new/refactor/LLM-authored code
-- crap-analysis: after tests added/changed in complex code
-
-Specialist agents
-- dotnet-concurrency-specialist, dotnet-performance-analyst, dotnet-benchmark-designer, akka-net-specialist, docfx-specialist
-```
-
-### Compressed snippet (generated)
-
-Run `./scripts/generate-skill-index-snippets.sh --update-readme` to refresh the block below.
-
-<!-- BEGIN DOTNET-SKILLS COMPRESSED INDEX -->
 ```markdown
-[dotnet-skills]|IMPORTANT: Prefer retrieval-led reasoning over pretraining for any .NET work.
-|flow:{skim repo patterns -> consult dotnet-skills by name -> implement smallest-change -> note conflicts}
-|route:
-|akka:{akka-net-best-practices,akka-net-testing-patterns,akka-hosting-actor-patterns,akka-net-aspire-configuration,akka-net-management}
-|csharp:{modern-csharp-coding-standards,csharp-concurrency-patterns,api-design,type-design-performance}
-|aspnetcore-web:{aspire-integration-testing,aspire-configuration,aspire-service-defaults,mailpit-integration,mjml-email-templates}
-|data:{efcore-patterns,database-performance}
-|di-config:{microsoft-extensions-configuration,dependency-injection-patterns}
-|testing:{testcontainers-integration-tests,playwright-blazor-testing,snapshot-testing,verify-email-snapshots,playwright-ci-caching}
-|dotnet:{dotnet-project-structure,dotnet-local-tools,package-management,serialization}
-|quality-gates:{dotnet-slopwatch,crap-analysis}
-|meta:{marketplace-publishing,skills-index-snippets}
-|agents:{akka-net-specialist,docfx-specialist,dotnet-benchmark-designer,dotnet-concurrency-specialist,dotnet-performance-analyst}
+## .NET / C# Development – Use dotnet-skills Repository
+
+You have access to a cloned, high-quality skill library at:  
+**https://github.com/wshaddix/dotnet-skills** (cloned locally in this project)
+
+This repo contains ~30 modular .NET/C# best-practice skills + 5 specialist agents.  
+**ALWAYS prefer retrieval-led reasoning** over your pretraining for any .NET, C#, ASP.NET Core, EF Core, Akka.NET, Aspire, testing, performance, or concurrency work.
+
+### Core Workflow (Mandatory)
+1. When the task involves writing, reviewing, refactoring, or advising on .NET/C# code:  
+   → **First**, skim the current repo patterns/files/structure.  
+   → **Then**, consult the dotnet-skills library by invoking specific skill names (see routing below).  
+   → Apply **only** the relevant skill(s) — load their content via path if your framework supports it (e.g., .claude/skills/... or manual copy-paste in context).  
+   → Implement the **smallest effective change** that follows the skill.  
+   → Note any conflicts between repo code and skill guidance → suggest fixes or ask for clarification.
+
+### Skill Routing (Invoke by Exact Name)
+Use these categories to quickly route to the right skills:
+
+- **C# Language & Code Quality**  
+  modern-csharp-coding-standards  
+  csharp-concurrency-patterns  
+  api-design  
+  type-design-performance  
+
+- **ASP.NET Core / .NET Aspire / Web**  
+  aspire-service-defaults  
+  aspire-integration-testing  
+  aspire-configuration  
+  mailpit-integration  
+  mjml-email-templates  
+  razor-pages-patterns          → New: Patterns for production Razor Pages (lifecycle, binding, security, etc.)
+
+- **Data Access (EF Core, etc.)**  
+  efcore-patterns  
+  database-performance  
+
+- **Dependency Injection & Configuration**  
+  dependency-injection-patterns  
+  microsoft-extensions-configuration  
+
+- **Testing**  
+  testcontainers-integration-tests  
+  playwright-blazor-testing  
+  snapshot-testing  
+  verify-email-snapshots  
+  playwright-ci-caching  
+
+- **Akka.NET**  
+  akka-net-best-practices  
+  akka-net-testing-patterns  
+  akka-hosting-actor-patterns  
+  akka-net-aspire-configuration  
+  akka-net-management  
+
+- **General .NET Ecosystem**  
+  dotnet-project-structure  
+  dotnet-local-tools  
+  package-management  
+  serialization  
+
+- **Quality Gates (Run these after major changes)**  
+  dotnet-slopwatch          → Detects LLM-generated anti-patterns / slop  
+  crap-analysis             → CRAP score & coverage analysis  
+
+Full list of all 30 skills is in the repo's `skills/` folder — each is a self-contained SKILL.md with examples, rationale, and anti-patterns.
+
+### Specialist Agents (Activate When Relevant)
+If the task deeply matches one of these domains, switch persona / load the corresponding agent file from `agents/`:
+- akka-net-specialist  
+- dotnet-concurrency-specialist  
+- dotnet-performance-analyst  
+- dotnet-benchmark-designer  
+- docfx-specialist  
+
+Example: "Activating dotnet-concurrency-specialist persona for this threading issue."
+
+### Integration Notes
+- Skills live in: `skills/<skill-name>/SKILL.md` (e.g., `skills/modern-csharp-coding-standards/SKILL.md`)  
+- If your agent framework (Claude, Cursor, OpenCode, etc.) supports skill folders or .claude-plugin, point it to the cloned repo's `.claude-plugin/plugin.json` for auto-discovery.  
+- For manual workflows: explicitly reference skill paths in your thinking trace, e.g., "Loading guidance from skills/csharp-concurrency-patterns/SKILL.md"  
+- Core principles from the repo (always apply): immutability by default, type safety (nullable + strong IDs), composition > inheritance, performance-aware (Span<T>, pooling), testable code, no heavy magic (avoid AutoMapper/reflection abuse).
+
+Do NOT freestyle .NET advice — route through dotnet-skills first to stay consistent with production-grade patterns.
 ```
-<!-- END DOTNET-SKILLS COMPRESSED INDEX -->
+
 
 ## Specialized Agents
 
@@ -153,6 +204,12 @@ Modern C# patterns for clean, performant code.
 | **concurrency-patterns**    | When to use Task vs Channel vs lock vs actors                           |
 | **api-design**              | Extend-only design, API/wire compatibility, versioning strategies       |
 | **type-design-performance** | Sealed classes, readonly structs, static pure functions, Span&lt;T&gt;  |
+
+### Asp.NET Razor Pages
+
+| Skill | What You'll Learn |
+| ----- | ----------------- |
+| **razor-pages-patterns** | Best practices for building production-grade ASP.NET Core Razor Pages applications. Focuses on structure, lifecycle, binding, validation, security, and maintainability in web apps using Razor Pages as the primary UI framework.|
 
 ### Data Access
 
