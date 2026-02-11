@@ -46,10 +46,11 @@ Workflow: skim repo patterns -> consult dotnet-skills by name -> implement small
 
 Routing (invoke by name)
 - C# / code quality: modern-csharp-coding-standards, csharp-concurrency-patterns, api-design, type-design-performance
-- ASP.NET Core / Web (incl. Aspire): aspire-service-defaults, aspire-integration-testing
+- ASP.NET Core / Razor Pages / Web: razor-pages-patterns, caching-strategies, logging-observability, validation-patterns, exception-handling, security-headers, middleware-patterns, background-services, http-client-resilience, rate-limiting, localization-globalization, file-handling, data-protection, signalr-integration, feature-flags, asp-net-core-identity-patterns
 - Data: efcore-patterns, database-performance
 - DI / config: dependency-injection-patterns, microsoft-extensions-configuration
 - Testing: testcontainers-integration-tests, playwright-blazor-testing, snapshot-testing
+- Aspire: aspire-service-defaults, aspire-integration-testing
 
 Quality gates (use when applicable)
 - dotnet-slopwatch: after substantial new/refactor/LLM-authored code
@@ -68,10 +69,11 @@ Use this when you want maximum density (small context footprint):
 |flow:{skim repo patterns -> consult dotnet-skills by name -> implement smallest-change -> note conflicts}
 |route:
 |csharp:{modern-csharp-coding-standards,csharp-concurrency-patterns,api-design,type-design-performance}
-|aspnetcore-web:{aspire-service-defaults,aspire-integration-testing}
+|aspnetcore-razorpages:{razor-pages-patterns,caching-strategies,logging-observability,validation-patterns,exception-handling,security-headers,middleware-patterns,background-services,http-client-resilience,rate-limiting,localization-globalization,file-handling,data-protection,signalr-integration,feature-flags,asp-net-core-identity-patterns}
 |data:{efcore-patterns,database-performance}
 |di-config:{dependency-injection-patterns,microsoft-extensions-configuration}
 |testing:{testcontainers-integration-tests,playwright-blazor-testing,snapshot-testing}
+|aspire:{aspire-service-defaults,aspire-integration-testing}
 |quality-gates:{dotnet-slopwatch(after:substantial new/refactor/LLM code),crap-analysis(after:tests added/changed in complex code)}
 |agents:{dotnet-concurrency-specialist,dotnet-performance-analyst,dotnet-benchmark-designer,akka-net-specialist,docfx-specialist}
 ```
@@ -108,10 +110,11 @@ Run:
 These are snippet categories (not necessarily repository folder structure):
 
 - C# / code quality
-- ASP.NET Core / Web (incl. Aspire)
+- ASP.NET Core / Razor Pages / Web
 - Data
 - DI / config
 - Testing
+- Aspire
 - Quality gates
 - Specialist agents
 

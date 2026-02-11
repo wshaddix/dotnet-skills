@@ -1,6 +1,6 @@
 # .NET Skills for Claude Code
 
-A comprehensive Claude Code plugin with **30 skills** and **5 specialized agents** for professional .NET development. Battle-tested patterns from production systems covering C#, Akka.NET, Aspire, EF Core, testing, and performance optimization.
+A comprehensive Claude Code plugin with **44 skills** and **5 specialized agents** for professional .NET development. Battle-tested patterns from production systems covering C#, Akka.NET, Aspire, EF Core, ASP.NET Core, Razor Pages, testing, security, and performance optimization.
 
 ## Installation
 
@@ -84,7 +84,7 @@ Add or update the following section in your AGENTS.md file (e.g., under the "## 
 You have access to a cloned, high-quality skill library at:  
 **https://github.com/wshaddix/dotnet-skills** (cloned locally in this project)
 
-This repo contains ~30 modular .NET/C# best-practice skills + 5 specialist agents.  
+This repo contains ~44 modular .NET/C# best-practice skills + 5 specialist agents.  
 **ALWAYS prefer retrieval-led reasoning** over your pretraining for any .NET, C#, ASP.NET Core, EF Core, Akka.NET, Aspire, testing, performance, or concurrency work.
 
 ### Core Workflow (Mandatory)
@@ -104,13 +104,23 @@ Use these categories to quickly route to the right skills:
   api-design  
   type-design-performance  
 
-- **ASP.NET Core / .NET Aspire / Web**  
-  aspire-service-defaults  
-  aspire-integration-testing  
-  aspire-configuration  
-  mailpit-integration  
-  mjml-email-templates  
-  razor-pages-patterns          → New: Patterns for production Razor Pages (lifecycle, binding, security, etc.)
+- **ASP.NET Core / Razor Pages / Web**
+  razor-pages-patterns          → Production Razor Pages patterns (lifecycle, binding, validation, security)
+  caching-strategies            → Output caching, memory cache, Redis, HybridCache (.NET 9+)
+  logging-observability         → Serilog, correlation IDs, health checks, OpenTelemetry
+  validation-patterns           → FluentValidation, data annotations, custom validators
+  exception-handling            → Global exception handler, ProblemDetails, custom exceptions
+  security-headers              → CSP, HSTS, security middleware
+  middleware-patterns           → Custom middleware, pipeline ordering, branching
+  background-services           → Hosted services, outbox pattern, graceful shutdown
+  http-client-resilience        → IHttpClientFactory, Polly retry/circuit breaker
+  rate-limiting                 → Request throttling, IP/user-based limits
+  localization-globalization    → Multi-language support, resource files, culture formatting
+  file-handling                 → File uploads, streaming, storage abstractions
+  data-protection               → ASP.NET Core Data Protection, key management
+  signalr-integration           → Real-time communication for Razor Pages
+  feature-flags                 → Microsoft.FeatureManagement, gradual rollouts
+  asp-net-core-identity-patterns → Production-grade Identity patterns (auth, roles, security)
 
 - **Data Access (EF Core, etc.)**  
   efcore-patterns  
@@ -144,7 +154,7 @@ Use these categories to quickly route to the right skills:
   dotnet-slopwatch          → Detects LLM-generated anti-patterns / slop  
   crap-analysis             → CRAP score & coverage analysis  
 
-Full list of all 30 skills is in the repo's `skills/` folder — each is a self-contained SKILL.md with examples, rationale, and anti-patterns.
+Full list of all 44 skills is in the repo's `skills/` folder — each is a self-contained SKILL.md with examples, rationale, and anti-patterns.
 
 ### Specialist Agents (Activate When Relevant)
 If the task deeply matches one of these domains, switch persona / load the corresponding agent file from `agents/`:
@@ -205,11 +215,29 @@ Modern C# patterns for clean, performant code.
 | **api-design**              | Extend-only design, API/wire compatibility, versioning strategies       |
 | **type-design-performance** | Sealed classes, readonly structs, static pure functions, Span&lt;T&gt;  |
 
-### Asp.NET Razor Pages
+### ASP.NET Core & Razor Pages
+
+Production patterns for web applications.
 
 | Skill | What You'll Learn |
 | ----- | ----------------- |
 | **razor-pages-patterns** | Best practices for building production-grade ASP.NET Core Razor Pages applications. Focuses on structure, lifecycle, binding, validation, security, and maintainability in web apps using Razor Pages as the primary UI framework.|
+| **mjml-email-templates** | MJML syntax, responsive layouts, template renderer, composer pattern |
+| **caching-strategies** | Output caching, memory cache, Redis distributed cache, HybridCache (.NET 9+), cache invalidation strategies |
+| **logging-observability** | Structured logging with Serilog, correlation IDs, health checks, OpenTelemetry integration, LoggerMessage pattern |
+| **validation-patterns** | FluentValidation integration, MediatR pipeline behaviors, data annotations, custom validators, string trimming |
+| **exception-handling** | Global exception handler, ProblemDetails API, custom exceptions, error pages, status code handling |
+| **security-headers** | CSP configuration, HSTS, security headers middleware, nonce-based inline scripts, violation reporting |
+| **middleware-patterns** | Custom middleware, conditional middleware, pipeline ordering, branching, factory pattern |
+| **background-services** | Hosted services, background jobs, outbox pattern, graceful shutdown handling |
+| **http-client-resilience** | IHttpClientFactory, Polly retry/circuit breaker, timeout handling, resilience strategies |
+| **localization-globalization** | Multi-language support, resource files, culture switching, currency/date formatting |
+| **feature-flags** | Microsoft.FeatureManagement, feature gates, gradual rollouts, Razor Page integration |
+| **file-handling** | File uploads, streaming, storage abstractions, virus scanning, CDN integration |
+| **data-protection** | ASP.NET Core Data Protection API, key management, database persistence, encryption |
+| **signalr-integration** | Real-time communication, hub authorization, Razor Page integration |
+| **rate-limiting** | Request throttling, IP/user-based limits, sliding window algorithms |
+| **asp-net-core-identity-patterns** | Production-grade Identity patterns, authentication, authorization, security hardening |
 
 ### Data Access
 
@@ -229,14 +257,6 @@ Cloud-native application orchestration.
 | **integration-testing** | DistributedApplicationTestingBuilder, Aspire.Hosting.Testing |
 | **service-defaults**    | OpenTelemetry, health checks, resilience, service discovery  |
 | **mailpit-integration** | Email testing with Mailpit container, SMTP config, test assertions |
-
-### ASP.NET Core
-
-Web application patterns.
-
-| Skill                    | What You'll Learn                                         |
-| ------------------------ | --------------------------------------------------------- |
-| **mjml-email-templates** | MJML syntax, responsive layouts, template renderer, composer pattern |
 
 ### .NET Ecosystem
 
@@ -298,7 +318,7 @@ dotnet-skills/
 │   ├── dotnet-benchmark-designer.md
 │   ├── dotnet-concurrency-specialist.md
 │   └── dotnet-performance-analyst.md
-└── skills/                 # Flat structure (30 skills)
+└── skills/                 # Flat structure (44 skills)
     ├── akka-best-practices/SKILL.md
     ├── akka-hosting-actor-patterns/SKILL.md
     ├── akka-net-aspire-configuration/SKILL.md
@@ -306,6 +326,12 @@ dotnet-skills/
     ├── aspire-integration-testing/SKILL.md
     ├── csharp-concurrency-patterns/SKILL.md
     ├── testcontainers-integration-tests/SKILL.md
+    ├── razor-pages-patterns/SKILL.md
+    ├── caching-strategies/SKILL.md
+    ├── logging-observability/SKILL.md
+    ├── validation-patterns/SKILL.md
+    ├── exception-handling/SKILL.md
+    ├── security-headers/SKILL.md
     └── ...                 # (prefixed by category)
 ```
 
