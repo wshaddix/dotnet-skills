@@ -1,8 +1,6 @@
 ---
 name: database-performance
-description: Database access patterns for performance. Separate read/write models, avoid N+1 queries, use AsNoTracking, apply row limits, and never do application-side joins. Works with EF Core and Dapper.
-invocable: false
-tags: [cqrs, performance, patterns]
+description: Database access patterns for performance. Separate read/write models, avoid N+1 queries, use AsNoTracking, apply row limits, and never do application-side joins. Works with EF Core and Dapper. Use when designing data access layers, optimizing slow database queries, choosing between EF Core and Dapper, or avoiding common performance pitfalls.
 ---
 
 # Database Performance Patterns

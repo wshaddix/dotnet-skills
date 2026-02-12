@@ -1,7 +1,6 @@
 ---
-name: dotnet-local-tools
-description: Managing local .NET tools with dotnet-tools.json for consistent tooling across development environments and CI/CD pipelines.
-invocable: false
+name: local-tools
+description: Best practices for working with .NET local tools, including manifest management, tool installation, and versioning. Use when setting up dotnet-tools.json for a project, installing or updating local tools, or managing tool versions across team members.
 ---
 
 # .NET Local Tools

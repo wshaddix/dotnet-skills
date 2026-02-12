@@ -1,7 +1,6 @@
 ---
 name: http-client-resilience
-description: IHttpClientFactory patterns with Polly for retries, circuit breakers, timeouts, and resilient HTTP communication. Includes best practices for HTTP client configuration and error handling.
-tags: [aspnetcore, httpclient, polly, resilience, retry, circuit-breaker]
+description: IHttpClientFactory patterns with Polly for retries, circuit breakers, timeouts, and resilient HTTP communication. Includes best practices for HTTP client configuration and error handling. Use when configuring resilient HTTP clients in ASP.NET Core, implementing retry policies with Polly, or setting up circuit breakers for external service calls.
 ---
 
 ## Rationale

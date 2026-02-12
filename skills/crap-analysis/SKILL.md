@@ -1,7 +1,6 @@
 ---
 name: crap-analysis
-description: Analyze code coverage and CRAP (Change Risk Anti-Patterns) scores to identify high-risk code. Use OpenCover format with ReportGenerator for Risk Hotspots showing cyclomatic complexity and untested code paths.
-invocable: true
+description: Analyze code coverage and CRAP (Change Risk Anti-Patterns) scores to identify high-risk code. Use OpenCover format with ReportGenerator for Risk Hotspots showing cyclomatic complexity and untested code paths. Use when evaluating code quality and test coverage before changes, identifying high-risk code that needs refactoring or testing, setting up coverage collection for a .NET project, or establishing coverage thresholds for CI/CD pipelines.
 ---
 
 # CRAP Score Analysis

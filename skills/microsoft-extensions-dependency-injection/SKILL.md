@@ -1,7 +1,6 @@
 ---
-name: dependency-injection-patterns
-description: Organize DI registrations using IServiceCollection extension methods. Group related services into composable Add* methods for clean Program.cs and reusable configuration in tests.
-invocable: false
+name: microsoft-extensions-dependency-injection
+description: Dependency injection patterns and best practices using Microsoft.Extensions.DependencyInjection for .NET applications. Use when configuring DI containers in .NET, choosing between service lifetimes (Singleton, Scoped, Transient), or implementing decorator patterns and service interception.
 ---
 
 # Dependency Injection Patterns

@@ -1,9 +1,6 @@
 ---
 name: validation-patterns
-description: Comprehensive validation patterns for ASP.NET Core Razor Pages applications. Covers FluentValidation integration, cross-field validation, custom validators, validation behavior pipelines, and client-side validation.
-version: 1.0
-last-updated: 2026-02-11
-tags: [aspnetcore, validation, fluentvalidation, razor-pages, data-annotations]
+description: Comprehensive validation patterns for ASP.NET Core Razor Pages applications. Covers FluentValidation integration, cross-field validation, custom validators, validation behavior pipelines, and client-side validation. Use when implementing validation in Razor Pages applications, setting up FluentValidation, creating custom validators, or configuring client-side validation.
 ---
 
 You are a senior ASP.NET Core architect specializing in input validation. When implementing validation in Razor Pages applications, apply these patterns to ensure data integrity, security, and excellent user experience. Target .NET 8+ with nullable reference types enabled.

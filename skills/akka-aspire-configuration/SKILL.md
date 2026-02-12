@@ -1,7 +1,6 @@
 ---
 name: akka-net-aspire-configuration
-description: Configure Akka.NET with .NET Aspire for local development and production deployments. Covers actor system setup, clustering, persistence, Akka.Management integration, and Aspire orchestration patterns.
-invocable: false
+description: Configure Akka.NET with .NET Aspire for local development and production deployments. Use when setting up Akka.NET with Aspire orchestration, configuring Akka.Cluster, integrating Akka.Persistence with SQL Server, or deploying to Kubernetes.
 ---
 
 # Configuring Akka.NET with .NET Aspire

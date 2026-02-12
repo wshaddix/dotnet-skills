@@ -1,7 +1,6 @@
 ---
 name: signalr-integration
-description: SignalR integration patterns for real-time communication in ASP.NET Core Razor Pages applications.
-tags: [aspnetcore, signalr, real-time, websockets, razor-pages]
+description: SignalR integration patterns for real-time communication in ASP.NET Core Razor Pages applications. Use when implementing real-time features in ASP.NET Core applications, setting up SignalR hubs and clients, or managing WebSocket connections and groups.
 ---
 
 ## Rationale

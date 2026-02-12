@@ -1,7 +1,6 @@
 ---
 name: file-handling
-description: File uploads, streaming, storage abstractions, and secure file handling patterns for ASP.NET Core Razor Pages applications.
-tags: [aspnetcore, file-upload, streaming, storage, razor-pages, i-form-file]
+description: File uploads, streaming, storage abstractions, and secure file handling patterns for ASP.NET Core Razor Pages applications. Use when implementing secure file uploads in Razor Pages, streaming large files, or creating storage abstractions for file operations.
 ---
 
 ## Rationale

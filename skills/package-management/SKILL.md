@@ -1,7 +1,6 @@
 ---
 name: package-management
-description: Manage NuGet packages using Central Package Management (CPM) and dotnet CLI commands. Never edit XML directly - use dotnet add/remove/list commands. Use shared version variables for related packages.
-invocable: false
+description: NuGet package management best practices including versioning strategies, central package management, and dependency resolution. Use when setting up Central Package Management (CPM), managing package versions across multiple projects, or resolving dependency conflicts in .NET solutions.
 ---
 
 # NuGet Package Management

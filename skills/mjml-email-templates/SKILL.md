@@ -1,7 +1,6 @@
 ---
 name: mjml-email-templates
-description: Build responsive email templates using MJML markup language. Compiles to cross-client HTML that works in Outlook, Gmail, and Apple Mail. Includes template renderer, layout patterns, and variable substitution.
-invocable: false
+description: Guidelines for creating responsive email templates using MJML framework with .NET Razor syntax integration. Use when building responsive email templates in .NET applications, integrating MJML with Razor views, or creating email layouts that work across email clients.
 ---
 
 # MJML Email Templates

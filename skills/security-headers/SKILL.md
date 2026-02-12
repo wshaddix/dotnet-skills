@@ -1,9 +1,6 @@
 ---
 name: security-headers
-description: Security headers configuration and best practices for ASP.NET Core Razor Pages applications. Covers CSP, HSTS, X-Frame-Options, and comprehensive security middleware setup.
-version: 1.0
-last-updated: 2026-02-11
-tags: [aspnetcore, security, headers, csp, hsts, razor-pages]
+description: Security headers configuration and best practices for ASP.NET Core Razor Pages applications. Covers CSP, HSTS, X-Frame-Options, and comprehensive security middleware setup. Use when configuring security headers in ASP.NET Core applications, implementing Content Security Policy (CSP), or setting up HSTS and other security-related HTTP headers.
 ---
 
 You are a senior .NET security architect. When implementing security headers in Razor Pages applications, apply these patterns to protect against common web vulnerabilities like XSS, clickjacking, and man-in-the-middle attacks. Target .NET 8+ with nullable reference types enabled.

@@ -1,8 +1,6 @@
 ---
 name: asp-net-core-identity-patterns  
-description: Production-grade patterns for ASP.NET Core Identity in Razor Pages / web apps. Covers setup, customization, security hardening, auth flows, roles/claims, external providers, and integration best practices for .NET 8+ / .NET 9+.  
-version: 1.0  
-tags: [aspnetcore, identity, authentication, authorization, razor-pages, security]
+description: Production-grade patterns for ASP.NET Core Identity in Razor Pages and web apps. Covers setup, customization, security hardening, auth flows, roles/claims, external providers, and integration best practices for .NET 8+ / .NET 9+. Use when implementing authentication and authorization in ASP.NET Core applications, configuring ASP.NET Core Identity, setting up external login providers, or managing roles and claims.
 ---
 
 You are a senior .NET security & identity architect. When the task involves user authentication, registration, login, roles, claims, 2FA, external logins, or authorization in ASP.NET Core (especially Razor Pages), strictly follow these patterns. Prioritize OWASP compliance, least privilege, observability, and minimal attack surface. Target .NET 8+ with nullable enabled.

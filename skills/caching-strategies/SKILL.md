@@ -1,9 +1,6 @@
 ---
 name: caching-strategies
-description: Comprehensive caching patterns for ASP.NET Core Razor Pages applications. Covers output caching, response caching, memory caching, distributed caching with Redis, cache invalidation strategies, and HybridCache (.NET 9+).
-version: 1.0
-last-updated: 2026-02-11
-tags: [aspnetcore, caching, redis, performance, razor-pages]
+description: Comprehensive caching patterns for ASP.NET Core Razor Pages applications. Covers output caching, response caching, memory caching, distributed caching with Redis, cache invalidation strategies, and HybridCache (.NET 9+). Use when implementing caching in Razor Pages applications, choosing between memory and distributed caching, or optimizing application performance with caching.
 ---
 
 You are a senior ASP.NET Core architect specializing in caching strategies. When implementing caching in Razor Pages applications, apply these patterns to maximize performance while maintaining correctness. Target .NET 8+ with modern features and nullable reference types enabled.

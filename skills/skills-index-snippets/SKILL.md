@@ -1,7 +1,6 @@
 ---
 name: skills-index-snippets
-description: Create and maintain AGENTS.md / CLAUDE.md snippet indexes that route tasks to the correct dotnet-skills skills and agents (including compressed Vercel-style indexes).
-invocable: false
+description: Code snippets and templates for working with the skills index and marketplace functionality. Use when creating new skills, updating skill index files, or validating skill metadata and structure.
 ---
 
 # Maintaining Skill Index Snippets (AGENTS.md / CLAUDE.md)

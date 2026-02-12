@@ -1,7 +1,6 @@
 ---
 name: data-protection
-description: ASP.NET Core Data Protection API patterns for encryption, key management, and secure data handling in web applications.
-tags: [aspnetcore, data-protection, encryption, key-management, security]
+description: ASP.NET Core Data Protection API patterns for encryption, key management, and secure data handling in web applications. Use when protecting sensitive data at rest or in transit, managing encryption keys in ASP.NET Core applications, or implementing secure token generation and validation.
 ---
 
 ## Rationale

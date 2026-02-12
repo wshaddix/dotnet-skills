@@ -1,9 +1,6 @@
 ---
 name: middleware-patterns
-description: Custom middleware patterns for ASP.NET Core Razor Pages applications. Covers request/response pipeline, middleware ordering, conditional middleware, and reusable middleware components.
-version: 1.0
-last-updated: 2026-02-11
-tags: [aspnetcore, middleware, pipeline, razor-pages, request-response]
+description: Custom middleware patterns for ASP.NET Core Razor Pages applications. Covers request/response pipeline, middleware ordering, conditional middleware, and reusable middleware components. Use when creating custom middleware in ASP.NET Core applications, understanding middleware pipeline ordering, or implementing cross-cutting concerns like logging, authentication, and caching.
 ---
 
 You are a senior ASP.NET Core architect specializing in middleware development. When building custom middleware for Razor Pages applications, apply these patterns to create reusable, testable, and well-ordered pipeline components. Target .NET 8+ with nullable reference types enabled.

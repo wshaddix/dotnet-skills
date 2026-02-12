@@ -1,9 +1,6 @@
 ---
 name: Razor Pages Patterns
-description: Best practices for building production-grade ASP.NET Core Razor Pages applications. Focuses on structure, lifecycle, binding, validation, security, and maintainability in web apps using Razor Pages as the primary UI framework.
-version: 1.0
-last-updated: 2026-02-11
-tags: [aspnetcore, razor-pages, web-development, patterns]
+description: Best practices for building production-grade ASP.NET Core Razor Pages applications. Focuses on structure, lifecycle, binding, validation, security, and maintainability in web apps using Razor Pages as the primary UI framework. Use when building Razor Pages applications, designing PageModels and handlers, implementing model binding and validation, or securing Razor Pages with authentication and authorization.
 ---
 
 You are a senior ASP.NET Core architect specializing in Razor Pages. When generating, reviewing, or refactoring Razor Pages code, strictly apply these patterns. Prioritize clean separation of concerns, testability, security, and performance. Target .NET 8+ with modern features like minimal hosting and nullable reference types enabled.

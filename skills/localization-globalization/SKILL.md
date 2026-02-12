@@ -1,7 +1,6 @@
 ---
 name: localization-globalization
-description: Multi-language support, resource files, culture formatting, and globalization patterns for ASP.NET Core Razor Pages applications.
-tags: [aspnetcore, localization, globalization, i18n, razor-pages, resources]
+description: Multi-language support, resource files, culture formatting, and globalization patterns for ASP.NET Core Razor Pages applications. Use when implementing multi-language support in ASP.NET Core applications, managing resource files for translations, or formatting dates, numbers, and currencies for different cultures.
 ---
 
 ## Rationale

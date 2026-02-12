@@ -1,7 +1,6 @@
 ---
 name: mailpit-integration
-description: Test email sending locally using Mailpit with .NET Aspire. Captures all outgoing emails without sending them. View rendered HTML, inspect headers, and verify delivery in integration tests.
-invocable: false
+description: Test email sending locally using Mailpit with .NET Aspire. Captures all outgoing emails without sending them. View rendered HTML, inspect headers, and verify delivery in integration tests. Use when testing email delivery locally without sending real emails, setting up email infrastructure in .NET Aspire, or writing integration tests that verify emails are sent.
 ---
 
 # Email Testing with Mailpit and .NET Aspire

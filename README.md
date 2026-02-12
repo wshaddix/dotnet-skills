@@ -1,6 +1,6 @@
 # .NET Skills for Claude Code
 
-A comprehensive Claude Code plugin with **44 skills** and **5 specialized agents** for professional .NET development. Battle-tested patterns from production systems covering C#, Akka.NET, Aspire, EF Core, ASP.NET Core, Razor Pages, testing, security, and performance optimization.
+A comprehensive Claude Code plugin with **47 skills** and **5 specialized agents** for professional .NET development. Battle-tested patterns from production systems covering C#, Akka.NET, Aspire, EF Core, ASP.NET Core, Razor Pages, Bootstrap, testing, security, and performance optimization.
 
 ## Installation
 
@@ -84,7 +84,7 @@ Add or update the following section in your AGENTS.md file (e.g., under the "## 
 You have access to a cloned, high-quality skill library at:  
 **https://github.com/wshaddix/dotnet-skills** (cloned locally in this project)
 
-This repo contains ~44 modular .NET/C# best-practice skills + 5 specialist agents.  
+This repo contains ~47 modular .NET/C# best-practice skills + 5 specialist agents.  
 **ALWAYS prefer retrieval-led reasoning** over your pretraining for any .NET, C#, ASP.NET Core, EF Core, Akka.NET, Aspire, testing, performance, or concurrency work.
 
 ### Core Workflow (Mandatory)
@@ -121,6 +121,7 @@ Use these categories to quickly route to the right skills:
   signalr-integration           → Real-time communication for Razor Pages
   feature-flags                 → Microsoft.FeatureManagement, gradual rollouts
   asp-net-core-identity-patterns → Production-grade Identity patterns (auth, roles, security)
+  bootstrap5-ui                 → Bootstrap 5.3 responsive UI, grid, components, Razor integration
 
 - **Data Access (EF Core, etc.)**  
   efcore-patterns  
@@ -145,6 +146,12 @@ Use these categories to quickly route to the right skills:
   akka-net-aspire-configuration  
   akka-net-management  
 
+- **.NET Aspire**  
+  aspire-configuration            → AppHost config, environment variables, portable configuration  
+  aspire-integration-testing      → DistributedApplicationTestingBuilder, Aspire.Hosting.Testing  
+  aspire-service-defaults         → OpenTelemetry, health checks, resilience, service discovery  
+  aspire-mailpit-integration      → Email testing with Mailpit container, SMTP config  
+
 - **General .NET Ecosystem**  
   dotnet-project-structure  
   dotnet-local-tools  
@@ -155,7 +162,7 @@ Use these categories to quickly route to the right skills:
   dotnet-slopwatch          → Detects LLM-generated anti-patterns / slop  
   crap-analysis             → CRAP score & coverage analysis  
 
-Full list of all 44 skills is in the repo's `skills/` folder — each is a self-contained SKILL.md with examples, rationale, and anti-patterns.
+Full list of all 47 skills is in the repo's `skills/` folder — each is a self-contained SKILL.md with examples, rationale, and anti-patterns.
 
 ### Specialist Agents (Activate When Relevant)
 If the task deeply matches one of these domains, switch persona / load the corresponding agent file from `agents/`:
@@ -239,6 +246,7 @@ Production patterns for web applications.
 | **signalr-integration** | Real-time communication, hub authorization, Razor Page integration |
 | **rate-limiting** | Request throttling, IP/user-based limits, sliding window algorithms |
 | **asp-net-core-identity-patterns** | Production-grade Identity patterns, authentication, authorization, security hardening |
+| **bootstrap5-ui** | Bootstrap 5.3 responsive UI patterns, grid system, components, forms, color modes, utility classes, ASP.NET Core Razor integration |
 
 ### Data Access
 
@@ -255,6 +263,7 @@ Cloud-native application orchestration.
 
 | Skill                   | What You'll Learn                                            |
 | ----------------------- | ------------------------------------------------------------ |
+| **configuration**       | AppHost config, environment variables, portable configuration outside Aspire |
 | **integration-testing** | DistributedApplicationTestingBuilder, Aspire.Hosting.Testing |
 | **service-defaults**    | OpenTelemetry, health checks, resilience, service discovery  |
 | **mailpit-integration** | Email testing with Mailpit container, SMTP config, test assertions |
@@ -291,6 +300,8 @@ Comprehensive testing strategies.
 | **crap-analysis**          | CRAP scores, coverage thresholds, ReportGenerator integration |
 | **snapshot-testing**       | Verify library, approval testing, API response validation     |
 | **verify-email-snapshots** | Snapshot test email templates, catch rendering regressions    |
+| **playwright-ci-caching**  | CI/CD pipeline caching for Playwright browsers, GitHub Actions/Azure DevOps |
+| **tunit-testing**          | TUnit framework setup, assertions, async testing, migration from other frameworks |
 
 ---
 
@@ -319,12 +330,13 @@ dotnet-skills/
 │   ├── dotnet-benchmark-designer.md
 │   ├── dotnet-concurrency-specialist.md
 │   └── dotnet-performance-analyst.md
-└── skills/                 # Flat structure (44 skills)
+└── skills/                 # Flat structure (47 skills)
     ├── akka-best-practices/SKILL.md
     ├── akka-hosting-actor-patterns/SKILL.md
     ├── akka-net-aspire-configuration/SKILL.md
     ├── aspire-configuration/SKILL.md
     ├── aspire-integration-testing/SKILL.md
+    ├── bootstrap5-ui/SKILL.md
     ├── csharp-concurrency-patterns/SKILL.md
     ├── testcontainers-integration-tests/SKILL.md
     ├── razor-pages-patterns/SKILL.md

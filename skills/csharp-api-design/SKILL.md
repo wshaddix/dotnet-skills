@@ -1,7 +1,6 @@
 ---
 name: api-design
-description: Design stable, compatible public APIs using extend-only design principles. Manage API compatibility, wire compatibility, and versioning for NuGet packages and distributed systems.
-invocable: false
+description: Design stable, compatible public APIs using extend-only design principles. Manage API compatibility, wire compatibility, and versioning for NuGet packages and distributed systems. Use when designing public APIs for NuGet packages or libraries, making changes to existing public APIs, planning wire format changes for distributed systems, or reviewing pull requests for breaking changes.
 ---
 
 # Public API Design and Compatibility

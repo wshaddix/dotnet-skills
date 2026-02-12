@@ -1,7 +1,6 @@
 ---
 name: csharp-concurrency-patterns
-description: Choosing the right concurrency abstraction in .NET - from async/await for I/O to Channels for producer/consumer to Akka.NET for stateful entity management. Avoid locks and manual synchronization unless absolutely necessary.
-invocable: false
+description: Choosing the right concurrency abstraction in .NET - from async/await for I/O to Channels for producer/consumer to Akka.NET for stateful entity management. Avoid locks and manual synchronization unless absolutely necessary. Use when deciding how to handle concurrent operations in .NET, evaluating whether to use async/await, Channels, or Akka.NET, or managing state across multiple concurrent entities.
 ---
 
 # .NET Concurrency: Choosing the Right Tool

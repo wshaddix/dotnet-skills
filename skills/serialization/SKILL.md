@@ -1,7 +1,6 @@
 ---
 name: serialization
-description: Choose the right serialization format for .NET applications. Prefer schema-based formats (Protobuf, MessagePack) over reflection-based (Newtonsoft.Json). Use System.Text.Json with AOT source generators for JSON scenarios.
-invocable: false
+description: JSON and binary serialization patterns for .NET applications, including System.Text.Json and protobuf best practices. Use when configuring JSON serialization in .NET applications, choosing between System.Text.Json and Newtonsoft.Json, or implementing Protocol Buffers for high-performance scenarios.
 ---
 
 # Serialization in .NET

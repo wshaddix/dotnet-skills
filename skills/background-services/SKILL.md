@@ -1,7 +1,6 @@
 ---
 name: background-services
-description: Hosted services, background jobs, outbox patterns, and graceful shutdown handling for ASP.NET Core applications. Includes patterns for reliable job processing and distributed systems.
-tags: [aspnetcore, background-jobs, hosted-services, outbox-pattern, graceful-shutdown]
+description: Hosted services, background jobs, outbox patterns, and graceful shutdown handling for ASP.NET Core applications. Includes patterns for reliable job processing and distributed systems. Use when implementing background processing in ASP.NET Core applications, handling outbox patterns for reliable message delivery, or managing graceful service shutdown.
 ---
 
 ## Rationale

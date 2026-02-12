@@ -1,7 +1,6 @@
 ---
 name: dotnet-tunit-test
-description: Write tests using the TUnit testing framework for .NET/C#. Covers project setup, test authoring, fluent async assertions, data-driven tests, lifecycle hooks, parallelism, dependency injection, ASP.NET Core integration testing, and CI/CD patterns.
-invocable: false
+description: Guidelines for writing TUnit tests in .NET, including setup, assertions, async testing, and best practices. Use when writing unit tests with TUnit framework, setting up TUnit in a .NET project, or migrating from other test frameworks to TUnit.
 ---
 
 # Testing with TUnit

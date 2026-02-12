@@ -1,7 +1,6 @@
 ---
 name: rate-limiting
-description: Request throttling, IP-based and user-based rate limiting patterns for ASP.NET Core applications.
-tags: [aspnetcore, rate-limiting, throttling, middleware, security]
+description: Rate limiting patterns for ASP.NET Core Razor Pages applications. Covers fixed window, sliding window, token bucket algorithms, and distributed rate limiting with Redis. Use when implementing rate limiting in ASP.NET Core applications, choosing between different rate limiting algorithms, or setting up distributed rate limiting with Redis.
 ---
 
 ## Rationale

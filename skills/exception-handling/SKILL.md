@@ -1,9 +1,6 @@
 ---
 name: exception-handling
-description: Comprehensive exception handling patterns for ASP.NET Core Razor Pages applications. Covers global exception handling, ProblemDetails API, custom error pages, exception middleware, and graceful degradation strategies.
-version: 1.0
-last-updated: 2026-02-11
-tags: [aspnetcore, exception-handling, error-handling, razor-pages, middleware]
+description: Comprehensive exception handling patterns for ASP.NET Core Razor Pages applications. Covers global exception handling, ProblemDetails API, custom error pages, exception middleware, and graceful degradation strategies. Use when implementing error handling in Razor Pages applications, configuring global exception middleware, or creating user-friendly error pages and API error responses.
 ---
 
 You are a senior ASP.NET Core architect specializing in exception handling. When implementing error handling in Razor Pages applications, apply these patterns to ensure graceful failures, proper logging, and excellent user experience. Target .NET 8+ with nullable reference types enabled.

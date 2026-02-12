@@ -1,7 +1,6 @@
 ---
 name: type-design-performance
-description: Design .NET types for performance. Seal classes, use readonly structs, prefer static pure functions, avoid premature enumeration, and choose the right collection types.
-invocable: false
+description: Design .NET types for performance. Seal classes, use readonly structs, prefer static pure functions, avoid premature enumeration, and choose the right collection types. Use when designing new types and APIs, reviewing code for performance issues, choosing between class, struct, and record, or working with collections and enumerables.
 ---
 
 # Type Design for Performance
