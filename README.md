@@ -1,6 +1,6 @@
 # .NET Skills for Claude Code
 
-A comprehensive Claude Code plugin with **47 skills** and **5 specialized agents** for professional .NET development. Battle-tested patterns from production systems covering C#, Akka.NET, Aspire, EF Core, ASP.NET Core, Razor Pages, Bootstrap, testing, security, and performance optimization.
+A comprehensive Claude Code plugin with **48 skills** and **5 specialized agents** for professional .NET development. Battle-tested patterns from production systems covering C#, Akka.NET, Aspire, EF Core, ASP.NET Core, Razor Pages, Bootstrap, testing, security, performance optimization, and Fly.io deployment.
 
 ## Installation
 
@@ -79,7 +79,7 @@ To get consistent skill usage in downstream repos, add a small router snippet in
 Add or update the following section in your AGENTS.md file (e.g., under the "## .NET / C# Development – Use dotnet-skills Repository" block). This integrates the new skill into the routing, placing it in the "ASP.NET Core / .NET Aspire / Web" category for relevance.
 
 ```markdown
-## .NET / C# Development – Use dotnet-skills Repository
+## Skill Discovery
 
 You have access to a cloned, high-quality skill library at:  
 **https://github.com/wshaddix/dotnet-skills** (cloned locally in this project)
@@ -158,11 +158,14 @@ Use these categories to quickly route to the right skills:
   package-management  
   serialization  
 
+- **Deployment & Infrastructure**  
+  fly-io                    → Fly.io deployment, fly.toml config, Machines, Volumes, networking, CI/CD  
+
 - **Quality Gates (Run these after major changes)**  
   dotnet-slopwatch          → Detects LLM-generated anti-patterns / slop  
   crap-analysis             → CRAP score & coverage analysis  
 
-Full list of all 47 skills is in the repo's `skills/` folder — each is a self-contained SKILL.md with examples, rationale, and anti-patterns.
+Full list of all 48 skills is in the repo's `skills/` folder — each is a self-contained SKILL.md with examples, rationale, and anti-patterns.
 
 ### Specialist Agents (Activate When Relevant)
 If the task deeply matches one of these domains, switch persona / load the corresponding agent file from `agents/`:
@@ -174,11 +177,6 @@ If the task deeply matches one of these domains, switch persona / load the corre
 
 Example: "Activating dotnet-concurrency-specialist persona for this threading issue."
 
-### Integration Notes
-- Skills live in: `skills/<skill-name>/SKILL.md` (e.g., `skills/modern-csharp-coding-standards/SKILL.md`)  
-- If your agent framework (Claude, Cursor, OpenCode, etc.) supports skill folders or .claude-plugin, point it to the cloned repo's `.claude-plugin/plugin.json` for auto-discovery.  
-- For manual workflows: explicitly reference skill paths in your thinking trace, e.g., "Loading guidance from skills/csharp-concurrency-patterns/SKILL.md"  
-- Core principles from the repo (always apply): immutability by default, type safety (nullable + strong IDs), composition > inheritance, performance-aware (Span<T>, pooling), testable code, no heavy magic (avoid AutoMapper/reflection abuse).
 
 Do NOT freestyle .NET advice — route through dotnet-skills first to stay consistent with production-grade patterns.
 ```
@@ -303,6 +301,14 @@ Comprehensive testing strategies.
 | **playwright-ci-caching**  | CI/CD pipeline caching for Playwright browsers, GitHub Actions/Azure DevOps |
 | **tunit-testing**          | TUnit framework setup, assertions, async testing, migration from other frameworks |
 
+### Deployment & Infrastructure
+
+Patterns for deploying and managing applications on cloud platforms.
+
+| Skill | What You'll Learn |
+| ----- | ----------------- |
+| **fly-io** | Fly.io deployment with flyctl, fly.toml configuration, Fly Machines lifecycle, Fly Volumes, public/private networking, secrets management, health checks, autoscaling, GitHub Actions CI/CD, Managed Postgres, and production readiness |
+
 ---
 
 ## Key Principles
@@ -330,7 +336,7 @@ dotnet-skills/
 │   ├── dotnet-benchmark-designer.md
 │   ├── dotnet-concurrency-specialist.md
 │   └── dotnet-performance-analyst.md
-└── skills/                 # Flat structure (47 skills)
+└── skills/                 # Flat structure (48 skills)
     ├── akka-best-practices/SKILL.md
     ├── akka-hosting-actor-patterns/SKILL.md
     ├── akka-net-aspire-configuration/SKILL.md
@@ -338,6 +344,11 @@ dotnet-skills/
     ├── aspire-integration-testing/SKILL.md
     ├── bootstrap5-ui/SKILL.md
     ├── csharp-concurrency-patterns/SKILL.md
+    ├── fly-io/SKILL.md
+    ├── fly-io/references/fly-toml-config.md
+    ├── fly-io/references/networking.md
+    ├── fly-io/references/databases-storage.md
+    ├── fly-io/references/cicd-github-actions.md
     ├── testcontainers-integration-tests/SKILL.md
     ├── razor-pages-patterns/SKILL.md
     ├── caching-strategies/SKILL.md
