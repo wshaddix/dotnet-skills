@@ -125,6 +125,35 @@ Secrets are encrypted at rest, injected as env vars at boot. Use `[[files]]` in 
   secret_name = "TLS_PRIVATE_KEY"
 ```
 
+## Logs
+
+```bash
+fly logs                                     # Continuous tail (default, streams indefinitely)
+fly logs --no-tail                           # Output recent logs once and exit
+fly logs --machine <machine-id>              # Filter to a specific machine
+fly logs --machine <machine-id> --no-tail    # Recent logs for one machine, then exit
+fly logs --region iad                        # Filter by region
+fly logs --json                              # JSON-formatted output
+```
+
+**Important**: flyctl logs does NOT support `-n`, `--tail <count>`, or `--lines` flags. To limit output, pipe through standard tools:
+
+```bash
+fly logs --no-tail | head -50                # Last 50 lines
+fly logs --no-tail | tail -20                # Most recent 20 lines
+fly logs --machine <id> --no-tail | grep -i error   # Search for errors
+```
+
+Available flags:
+
+| Flag | Description |
+|---|---|
+| `--no-tail` (`-n`) | Output logs once and exit (do not stream) |
+| `--machine <id>` | Filter to a specific machine ID |
+| `--region <code>` | Filter by region (e.g., `iad`, `ord`) |
+| `--json` (`-j`) | JSON output format |
+| `--app <name>` (`-a`) | Specify app name (if not in fly.toml directory) |
+
 ## Networking
 
 For detailed networking patterns (public services, private networking, Flycast, custom domains, DNS), see [references/networking.md](references/networking.md).
@@ -267,7 +296,12 @@ Run multiple processes in one app (e.g., web + worker):
 | `fly deploy` | Build and deploy |
 | `fly deploy --remote-only` | Build on Fly.io builders |
 | `fly status` | App and Machine status |
-| `fly logs` | Tail live logs |
+| `fly logs` | Tail live logs (continuous stream) |
+| `fly logs --no-tail` | Output recent logs once and exit |
+| `fly logs --machine <id>` | Filter logs to specific machine |
+| `fly logs --machine <id> --no-tail` | Recent logs for one machine, then exit |
+| `fly logs --region iad` | Filter logs by region |
+| `fly logs --json` | Output logs in JSON format |
 | `fly ssh console -s` | SSH into a Machine (select) |
 | `fly proxy 5432:5432` | Proxy local port to app |
 | `fly dashboard` | Open web dashboard |
