@@ -1,6 +1,6 @@
 # .NET Skills for Claude Code
 
-A comprehensive Claude Code plugin with **48 skills** and **5 specialized agents** for professional .NET development. Battle-tested patterns from production systems covering C#, Akka.NET, Aspire, EF Core, ASP.NET Core, Razor Pages, Bootstrap, testing, security, performance optimization, and Fly.io deployment.
+A comprehensive Claude Code plugin with **49 skills** and **5 specialized agents** for professional .NET development. Battle-tested patterns from production systems covering C#, Akka.NET, Aspire, EF Core, ASP.NET Core, Razor Pages, Bootstrap, testing, security, performance optimization, and Fly.io deployment.
 
 ## Installation
 
@@ -157,6 +157,7 @@ Use these categories to quickly route to the right skills:
   dotnet-local-tools  
   package-management  
   serialization  
+  csharp-wolverinefx  
 
 - **Deployment & Infrastructure**  
   fly-io                    → Fly.io deployment, fly.toml config, Machines, Volumes, networking, CI/CD  
@@ -165,7 +166,7 @@ Use these categories to quickly route to the right skills:
   dotnet-slopwatch          → Detects LLM-generated anti-patterns / slop  
   crap-analysis             → CRAP score & coverage analysis  
 
-Full list of all 48 skills is in the repo's `skills/` folder — each is a self-contained SKILL.md with examples, rationale, and anti-patterns.
+Full list of all 49 skills is in the repo's `skills/` folder — each is a self-contained SKILL.md with examples, rationale, and anti-patterns.
 
 ### Specialist Agents (Activate When Relevant)
 If the task deeply matches one of these domains, switch persona / load the corresponding agent file from `agents/`:
@@ -277,6 +278,7 @@ Core .NET development practices.
 | **serialization**      | Protobuf, MessagePack, System.Text.Json source generators, AOT         |
 | **local-tools**        | dotnet tool manifests, team-shared tooling                             |
 | **slopwatch**          | Detect LLM-generated anti-patterns in your codebase                    |
+| **wolverinefx**        | Messaging, HTTP services, event sourcing with Marten, transactional outbox, CQRS, cascading messages |
 
 ### Microsoft.Extensions
 
@@ -336,7 +338,7 @@ dotnet-skills/
 │   ├── dotnet-benchmark-designer.md
 │   ├── dotnet-concurrency-specialist.md
 │   └── dotnet-performance-analyst.md
-└── skills/                 # Flat structure (48 skills)
+└── skills/                 # Flat structure (49 skills)
     ├── akka-best-practices/SKILL.md
     ├── akka-hosting-actor-patterns/SKILL.md
     ├── akka-net-aspire-configuration/SKILL.md
@@ -353,9 +355,7 @@ dotnet-skills/
     ├── razor-pages-patterns/SKILL.md
     ├── caching-strategies/SKILL.md
     ├── logging-observability/SKILL.md
-    ├── validation-patterns/SKILL.md
-    ├── exception-handling/SKILL.md
-    ├── security-headers/SKILL.md
+    ├── csharp-wolverinefx/SKILL.md
     └── ...                 # (prefixed by category)
 ```
 
