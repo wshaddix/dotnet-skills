@@ -1,6 +1,6 @@
 ---
 name: csharp-concurrency-patterns
-description: Choosing the right concurrency abstraction in .NET - from async/await for I/O to Channels for producer/consumer to Akka.NET for stateful entity management. Avoid locks and manual synchronization unless absolutely necessary. Use when deciding how to handle concurrent operations in .NET, evaluating whether to use async/await, Channels, or Akka.NET, or managing state across multiple concurrent entities.
+description: Choosing the right concurrency abstraction in .NET - from async/await for I/O to Channels for producer/consumer to Akka.NET for stateful entity management. Covers both high-level abstractions and low-level synchronization primitives. Use when deciding how to handle concurrent operations in .NET, evaluating whether to use async/await, Channels, or Akka.NET, or managing state across multiple concurrent entities.
 ---
 
 # .NET Concurrency: Choosing the Right Tool
@@ -29,8 +29,6 @@ When you truly need shared mutable state:
 2. **Second choice:** Use `System.Collections.Concurrent` (ConcurrentDictionary, ConcurrentQueue, etc.)
 3. **Third choice:** Use `Channel<T>` to serialize access through message passing
 4. **Last resort:** Use `lock` for simple, short-lived critical sections
-
-Locks are appropriate when building low-level infrastructure or concurrent data structures. But for business logic, there's almost always a better abstraction.
 
 ---
 
@@ -63,10 +61,26 @@ What are you trying to do?
 ├─► Coordinate multiple async operations?
 │   └─► Use Task.WhenAll / Task.WhenAny
 │
+├─► Need to protect shared mutable state with synchronization?
+│   └─► Is the shared state a single scalar (int, long, reference)?
+│       YES -> Use Interlocked (lock-free, lowest overhead)
+│
+│       Is the shared state a key-value lookup or queue?
+│       YES -> Use ConcurrentDictionary / ConcurrentQueue (thread-safe by design)
+│
+│       Does the critical section contain `await`?
+│       YES -> Use SemaphoreSlim (async-compatible via WaitAsync)
+│       NO  -> Does the critical section need many readers, few writers?
+│                YES -> Use ReaderWriterLockSlim (only if profiling shows lock contention)
+│                NO  -> Use lock (simplest, lowest cognitive overhead)
+│
+│       Is the critical section extremely short (< 100 ns) with high contention?
+│       YES -> Consider SpinLock (advanced, measure first)
+│
 └─► None of the above fits?
     └─► Ask yourself: "Do I really need shared mutable state?"
-        ├─► Yes → Consider redesigning to avoid it
-        └─► Truly unavoidable → Use Channels or Actors to serialize access
+        ├─► Yes -> Consider redesigning to avoid it
+        └─► Truly unavoidable -> Use Channels or Actors to serialize access
 ```
 
 ---
@@ -76,7 +90,6 @@ What are you trying to do?
 **Use for:** I/O-bound operations, non-blocking waits, most everyday concurrency.
 
 ```csharp
-// Simple async I/O
 public async Task<Order> GetOrderAsync(string orderId, CancellationToken ct)
 {
     var order = await _database.GetAsync(orderId, ct);
@@ -84,7 +97,6 @@ public async Task<Order> GetOrderAsync(string orderId, CancellationToken ct)
     return order with { Customer = customer };
 }
 
-// Parallel async operations (when independent)
 public async Task<Dashboard> LoadDashboardAsync(string userId, CancellationToken ct)
 {
     var ordersTask = _orderService.GetRecentOrdersAsync(userId, ct);
@@ -112,7 +124,6 @@ public async Task<Dashboard> LoadDashboardAsync(string userId, CancellationToken
 **Use for:** Processing collections in parallel when work is CPU-bound or you need controlled concurrency.
 
 ```csharp
-// Process items with controlled parallelism
 public async Task ProcessOrdersAsync(
     IEnumerable<Order> orders,
     CancellationToken ct)
@@ -130,7 +141,6 @@ public async Task ProcessOrdersAsync(
         });
 }
 
-// CPU-bound work with I/O
 public async Task<IReadOnlyList<ProcessedImage>> ProcessImagesAsync(
     IEnumerable<string> imagePaths,
     CancellationToken ct)
@@ -143,7 +153,7 @@ public async Task<IReadOnlyList<ProcessedImage>> ProcessImagesAsync(
         async (path, token) =>
         {
             var image = await File.ReadAllBytesAsync(path, token);
-            var processed = ProcessImage(image); // CPU-bound
+            var processed = ProcessImage(image);
             results.Add(processed);
         });
 
@@ -163,27 +173,23 @@ public async Task<IReadOnlyList<ProcessedImage>> ProcessImagesAsync(
 **Use for:** Work queues, producer/consumer patterns, decoupling producers from consumers, simple stream-like processing.
 
 ```csharp
-// Basic producer/consumer
 public class OrderProcessor
 {
     private readonly Channel<Order> _channel;
 
     public OrderProcessor()
     {
-        // Bounded channel provides backpressure
         _channel = Channel.CreateBounded<Order>(new BoundedChannelOptions(100)
         {
             FullMode = BoundedChannelFullMode.Wait
         });
     }
 
-    // Producer
     public async Task EnqueueOrderAsync(Order order, CancellationToken ct)
     {
         await _channel.Writer.WriteAsync(order, ct);
     }
 
-    // Consumer (run as background task)
     public async Task ProcessOrdersAsync(CancellationToken ct)
     {
         await foreach (var order in _channel.Reader.ReadAllAsync(ct))
@@ -192,13 +198,11 @@ public class OrderProcessor
         }
     }
 
-    // Signal no more items
     public void Complete() => _channel.Writer.Complete();
 }
 ```
 
 ```csharp
-// Multiple consumers (work-stealing pattern)
 public class WorkerPool
 {
     private readonly Channel<WorkItem> _channel;
@@ -208,7 +212,6 @@ public class WorkerPool
     {
         _channel = Channel.CreateUnbounded<WorkItem>();
 
-        // Start multiple consumers
         for (int i = 0; i < workerCount; i++)
         {
             _workers.Add(Task.Run(() => ConsumeAsync()));
@@ -249,16 +252,14 @@ public class WorkerPool
 using Akka.Streams;
 using Akka.Streams.Dsl;
 
-// Batching with timeout
 public Source<IReadOnlyList<Event>, NotUsed> BatchEvents(
     Source<Event, NotUsed> events)
 {
     return events
-        .GroupedWithin(100, TimeSpan.FromSeconds(1)) // Batch up to 100 or 1 second
+        .GroupedWithin(100, TimeSpan.FromSeconds(1))
         .Select(batch => batch.ToList() as IReadOnlyList<Event>);
 }
 
-// Throttling
 public Source<Request, NotUsed> ThrottleRequests(
     Source<Request, NotUsed> requests)
 {
@@ -266,15 +267,13 @@ public Source<Request, NotUsed> ThrottleRequests(
         .Throttle(10, TimeSpan.FromSeconds(1), 5, ThrottleMode.Shaping);
 }
 
-// Parallel processing with ordered results
 public Source<ProcessedItem, NotUsed> ProcessWithParallelism(
     Source<Item, NotUsed> items)
 {
     return items
-        .SelectAsync(4, async item => await ProcessAsync(item)); // 4 parallel
+        .SelectAsync(4, async item => await ProcessAsync(item));
 }
 
-// Complex pipeline
 public IRunnableGraph<Task<Done>> CreatePipeline(
     Source<RawEvent, NotUsed> events,
     Sink<ProcessedEvent, Task<Done>> sink)
@@ -288,44 +287,31 @@ public IRunnableGraph<Task<Done>> CreatePipeline(
 }
 ```
 
-**Akka.NET Streams excel at:**
-- Batching with size AND time limits
-- Throttling and rate limiting
-- Backpressure that propagates through the entire pipeline
-- Merging/splitting streams
-- Parallel processing with ordering guarantees
-- Error handling with supervision
-
 ---
 
 ## Level 4b: Reactive Extensions (UI and Event Composition)
 
 **Use for:** UI event handling, composing event streams, time-based operations in client applications.
 
-Rx shines in UI scenarios where you need to react to user events with debouncing, throttling, or combining multiple event sources.
-
 ```csharp
 using System.Reactive.Linq;
 
-// Search-as-you-type with debouncing
 public class SearchViewModel
 {
     public SearchViewModel(ISearchService searchService)
     {
-        // React to text changes with debouncing
         SearchResults = SearchText
-            .Throttle(TimeSpan.FromMilliseconds(300))  // Wait for typing to pause
-            .DistinctUntilChanged()                     // Ignore if same text
-            .Where(text => text.Length >= 3)           // Minimum length
+            .Throttle(TimeSpan.FromMilliseconds(300))
+            .DistinctUntilChanged()
+            .Where(text => text.Length >= 3)
             .SelectMany(text => searchService.SearchAsync(text).ToObservable())
-            .ObserveOn(RxApp.MainThreadScheduler);     // Back to UI thread
+            .ObserveOn(RxApp.MainThreadScheduler);
     }
 
     public IObservable<string> SearchText { get; }
     public IObservable<IList<SearchResult>> SearchResults { get; }
 }
 
-// Combining multiple UI events
 public IObservable<bool> CanSubmit =>
     Observable.CombineLatest(
         UsernameValid,
@@ -333,39 +319,27 @@ public IObservable<bool> CanSubmit =>
         EmailValid,
         (user, pass, email) => user && pass && email);
 
-// Double-click detection
 public IObservable<Point> DoubleClicks =>
     MouseClicks
         .Buffer(TimeSpan.FromMilliseconds(300))
         .Where(clicks => clicks.Count >= 2)
         .Select(clicks => clicks.Last());
 
-// Auto-save with debouncing
 public IDisposable AutoSave =>
     DocumentChanges
         .Throttle(TimeSpan.FromSeconds(2))
         .Subscribe(async doc => await SaveAsync(doc));
 ```
 
-**Rx is ideal for:**
-- UI event composition (WPF, WinForms, MAUI, Blazor)
-- Search-as-you-type with debouncing
-- Combining multiple event sources
-- Time-windowed operations in UI
-- Drag-and-drop gesture detection
-- Real-time data visualization
-
 **Rx vs Akka.NET Streams:**
 
 | Scenario | Rx | Akka.NET Streams |
 |----------|----|--------------------|
-| UI events | ✅ Best choice | Overkill |
-| Client-side composition | ✅ Best choice | Overkill |
-| Server-side pipelines | Works but limited | ✅ Better backpressure |
-| Distributed processing | ❌ Not designed for | ✅ Built for this |
-| Hot observables | ✅ Native support | Requires more setup |
-
-**Rule of thumb:** Rx for UI/client, Akka.NET Streams for server-side pipelines.
+| UI events | Best choice | Overkill |
+| Client-side composition | Best choice | Overkill |
+| Server-side pipelines | Works but limited | Better backpressure |
+| Distributed processing | Not designed for | Built for this |
+| Hot observables | Native support | Requires more setup |
 
 ---
 
@@ -376,7 +350,6 @@ public IDisposable AutoSave =>
 ### Entity-Per-Actor Pattern
 
 ```csharp
-// Actor per entity - each order has isolated state
 public class OrderActor : ReceiveActor
 {
     private OrderState _state;
@@ -411,8 +384,6 @@ public class OrderActor : ReceiveActor
 
 ### State Machines with Become
 
-Actors excel at implementing state machines using `Become()` to switch message handlers:
-
 ```csharp
 public class PaymentActor : ReceiveActor
 {
@@ -421,8 +392,6 @@ public class PaymentActor : ReceiveActor
     public PaymentActor(string paymentId)
     {
         _payment = new PaymentData(paymentId);
-
-        // Start in Pending state
         Pending();
     }
 
@@ -431,7 +400,6 @@ public class PaymentActor : ReceiveActor
         Receive<AuthorizePayment>(msg =>
         {
             _payment = _payment with { Amount = msg.Amount };
-            // Transition to Authorizing state
             Become(Authorizing);
             Self.Tell(new ProcessAuthorization());
         });
@@ -459,7 +427,6 @@ public class PaymentActor : ReceiveActor
             }
         });
 
-        // Can't cancel while authorizing - stash for later or reject
         Receive<CancelPayment>(_ =>
         {
             Sender.Tell(new PaymentError("Cannot cancel during authorization"));
@@ -481,71 +448,134 @@ public class PaymentActor : ReceiveActor
         });
     }
 
-    private void Capturing() { /* ... */ }
-    private void Voiding() { /* ... */ }
-    private void Cancelled() { /* Only responds to GetState */ }
-    private void Failed() { /* Only responds to GetState, Retry */ }
+    private void Capturing() { }
+    private void Voiding() { }
+    private void Cancelled() { }
+    private void Failed() { }
 }
 ```
 
-### Distributed Entities with Cluster Sharding
+---
+
+## Synchronization Primitives
+
+When you must use shared mutable state, choose the simplest primitive that meets the requirement.
+
+### Quick Reference Table
+
+| Primitive | Async-Safe | Reentrant | Use Case |
+|-----------|-----------|-----------|----------|
+| `lock` / `Monitor` | No | Yes (same thread) | Short critical sections without `await` |
+| `SemaphoreSlim` | Yes (`WaitAsync`) | No | Async-compatible mutual exclusion, throttling |
+| `Interlocked` | N/A (lock-free) | N/A | Atomic scalar operations (increment, compare-exchange) |
+| `ConcurrentDictionary<K,V>` | N/A (thread-safe) | N/A | Thread-safe key-value cache/lookup |
+| `ConcurrentQueue<T>` | N/A (thread-safe) | N/A | Thread-safe FIFO queue |
+| `ReaderWriterLockSlim` | No | Optional (`LockRecursionPolicy`) | Many-readers/few-writers (profile-driven only) |
+| `SpinLock` | No | No | Ultra-short critical sections under extreme contention |
+
+### lock and Monitor
 
 ```csharp
-// Using Cluster Sharding for distributed entities
-builder.WithShardRegion<OrderActor>(
-    typeName: "orders",
-    entityPropsFactory: (_, _, resolver) =>
-        orderId => Props.Create(() => new OrderActor(orderId)),
-    messageExtractor: new OrderMessageExtractor(),
-    shardOptions: new ShardOptions());
+public sealed class Counter
+{
+    private readonly object _lock = new();
+    private int _count;
 
-// Send message to any order - sharding routes to correct node
-var orderRegion = registry.Get<OrderActor>();
-orderRegion.Tell(new ShardingEnvelope("order-123", new AddItem(item)));
+    public void Increment()
+    {
+        lock (_lock)
+        {
+            _count++;
+        }
+    }
+
+    public int GetCount()
+    {
+        lock (_lock)
+        {
+            return _count;
+        }
+    }
+}
 ```
 
-### When to Use Akka.NET
+**Lock Object Rules:**
+- Use a private, dedicated `object` field
+- Never lock on `this`
+- Never lock on `typeof(T)`
+- Never lock on string literals
+- Never lock on value types
 
-**Use Akka.NET Actors when you have:**
+### SemaphoreSlim
 
-| Scenario | Why Actors? |
-|----------|-------------|
-| Many entities with independent state | Each entity gets its own actor - no locks, natural isolation |
-| State machines | `Become()` elegantly models state transitions |
-| Push-based/reactive updates | Actors naturally support tell-don't-ask |
-| Supervision requirements | Parent actors supervise children, automatic restart on failure |
-| Distributed systems | Cluster Sharding distributes entities across nodes |
-| Long-running workflows | Actors + persistence = durable workflows |
-| Real-time systems | Message-driven, non-blocking by design |
-| IoT / device management | Each device = one actor, scales to millions |
+The only built-in .NET synchronization primitive that supports `await`:
 
-**Don't use Akka.NET when:**
+```csharp
+public sealed class AsyncCache
+{
+    private readonly SemaphoreSlim _semaphore = new(1, 1);
+    private readonly Dictionary<string, object> _cache = new();
 
-| Scenario | Better Alternative |
-|----------|-------------------|
-| Simple work queue | `Channel<T>` |
-| Request/response API | `async/await` |
-| Batch processing | `Parallel.ForEachAsync` or Akka.NET Streams |
-| UI event handling | Reactive Extensions |
-| Shared state (single instance) | Service with `Channel` for serialization |
-| CRUD operations | Standard async services |
+    public async Task<T> GetOrAddAsync<T>(string key,
+        Func<CancellationToken, Task<T>> factory,
+        CancellationToken ct = default)
+    {
+        await _semaphore.WaitAsync(ct);
+        try
+        {
+            if (_cache.TryGetValue(key, out var existing))
+                return (T)existing;
 
-### The Actor Mindset
+            var value = await factory(ct);
+            _cache[key] = value!;
+            return value;
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+}
+```
 
-Think of actors when your problem looks like:
-- "I have **thousands** of [orders/users/devices/sessions] that need independent state"
-- "Each [entity] goes through a **lifecycle** with different behaviors at each stage"
-- "I need to **push updates** to interested parties when something changes"
-- "If processing fails, I want to **restart** just that entity, not the whole system"
-- "This needs to work across **multiple servers**"
+### Interlocked Operations
 
-If none of these apply, you probably don't need actors.
+Lock-free atomic operations for scalar values:
+
+```csharp
+private int _counter;
+private long _totalBytes;
+private object? _current;
+
+Interlocked.Increment(ref _counter);
+Interlocked.Decrement(ref _counter);
+Interlocked.Add(ref _totalBytes, bytesRead);
+var previous = Interlocked.Exchange(ref _current, newValue);
+var original = Interlocked.CompareExchange(ref _counter, newValue: 10, comparand: 0);
+```
+
+### ConcurrentDictionary
+
+```csharp
+private readonly ConcurrentDictionary<int, Widget> _cache = new();
+
+var widget = _cache.GetOrAdd(id, key => LoadWidget(key));
+var updated = _cache.AddOrUpdate(id,
+    addValueFactory: key => CreateDefault(key),
+    updateValueFactory: (key, existing) => existing with { LastAccessed = DateTime.UtcNow });
+
+if (_cache.TryRemove(id, out var removed))
+{
+}
+```
+
+**Important:** `GetOrAdd` factory delegates may execute multiple times under contention. Use `Lazy<T>` wrapping for exactly-once semantics.
 
 ---
 
 ## Anti-Patterns: What to Avoid
 
-### ❌ Locks for Business Logic
+### Locks for Business Logic
 
 ```csharp
 // BAD: Using locks to protect shared state
@@ -564,32 +594,20 @@ public void UpdateOrder(string id, Action<Order> update)
 }
 
 // GOOD: Use an actor or Channel to serialize access
-// Each order gets its own actor - no locks needed
 ```
 
-### ❌ Manual Thread Management
-
-```csharp
-// BAD: Creating threads manually
-var thread = new Thread(() => ProcessOrders());
-thread.Start();
-
-// GOOD: Use Task.Run or better abstractions
-_ = Task.Run(() => ProcessOrdersAsync(cancellationToken));
-```
-
-### ❌ Blocking in Async Code
+### Blocking in Async Code
 
 ```csharp
 // BAD: Blocking on async
-var result = GetDataAsync().Result; // Deadlock risk!
-GetDataAsync().Wait();              // Also bad
+var result = GetDataAsync().Result;
+GetDataAsync().Wait();
 
 // GOOD: Async all the way
 var result = await GetDataAsync();
 ```
 
-### ❌ Shared Mutable State Without Protection
+### Shared Mutable State Without Protection
 
 ```csharp
 // BAD: Multiple tasks mutating shared state
@@ -602,8 +620,11 @@ await Parallel.ForEachAsync(items, async (item, ct) =>
 
 // GOOD: Use ConcurrentBag or collect results differently
 var results = new ConcurrentBag<Result>();
-// Or better: return from the lambda and collect
 ```
+
+### Do not use `lock` inside `async` methods
+
+`lock` is thread-affine; the continuation after `await` may resume on a different thread, causing `SynchronizationLockException`. Use `SemaphoreSlim.WaitAsync` instead.
 
 ---
 
@@ -611,30 +632,11 @@ var results = new ConcurrentBag<Result>();
 
 Use async local functions instead of `Task.Run(async () => ...)` or `ContinueWith()`:
 
-### Don't: Anonymous Async Lambda
-
-```csharp
-private void HandleCommand(MyCommand cmd)
-{
-    var self = Self;
-
-    _ = Task.Run(async () =>
-    {
-        // Lots of async work here...
-        var result = await DoWorkAsync();
-        return new WorkCompleted(result);
-    }).PipeTo(self);
-}
-```
-
-### Do: Async Local Function
-
 ```csharp
 private void HandleCommand(MyCommand cmd)
 {
     async Task<WorkCompleted> ExecuteAsync()
     {
-        // Lots of async work here...
         var result = await DoWorkAsync();
         return new WorkCompleted(result);
     }
@@ -642,59 +644,6 @@ private void HandleCommand(MyCommand cmd)
     ExecuteAsync().PipeTo(Self);
 }
 ```
-
-### Avoid ContinueWith for Sequencing
-
-**Don't:**
-```csharp
-someTask
-    .ContinueWith(t => ProcessResult(t.Result))
-    .ContinueWith(t => SendNotification(t.Result));
-```
-
-**Do:**
-```csharp
-async Task ProcessAndNotifyAsync()
-{
-    var result = await someTask;
-    var processed = await ProcessResult(result);
-    await SendNotification(processed);
-}
-
-ProcessAndNotifyAsync();
-```
-
-### Why This Matters
-
-| Benefit | Description |
-|---------|-------------|
-| **Readability** | Named functions are self-documenting; anonymous lambdas obscure intent |
-| **Debugging** | Stack traces show meaningful function names instead of `<>c__DisplayClass` |
-| **Exception handling** | Cleaner try/catch structure without `AggregateException` unwrapping |
-| **Scope clarity** | Local functions make captured variables explicit |
-| **Testability** | Easier to extract and unit test the async logic |
-
-### Akka.NET Example
-
-When using `PipeTo` in actors, async local functions keep the pattern clean:
-
-```csharp
-private void HandleSync(StartSync cmd)
-{
-    async Task<SyncResult> PerformSyncAsync()
-    {
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var service = scope.ServiceProvider.GetRequiredService<ISyncService>();
-
-        var count = await service.SyncAsync(cmd.EntityId);
-        return new SyncResult(cmd.EntityId, count);
-    }
-
-    PerformSyncAsync().PipeTo(Self);
-}
-```
-
-This is cleaner than wrapping everything in `Task.Run(async () => ...)`.
 
 ---
 
@@ -712,6 +661,10 @@ This is cleaner than wrapping everything in `Task.Run(async () => ...)`.
 | Fire multiple async ops | `Task.WhenAll` | Loading dashboard data |
 | Race multiple async ops | `Task.WhenAny` | Timeout with fallback |
 | Periodic work | `PeriodicTimer` | Health checks, polling |
+| Protect single scalar | `Interlocked` | Counters, flags |
+| Protect key-value state | `ConcurrentDictionary` | Caches, lookups |
+| Async-compatible mutex | `SemaphoreSlim` | Async critical sections |
+| Simple synchronous mutex | `lock` | Short critical sections without `await` |
 
 ---
 
@@ -732,3 +685,17 @@ async/await (start here)
 ```
 
 **Only escalate when you have a concrete need.** Don't reach for actors or streams "just in case" - start with async/await and move up only when the simpler approach doesn't fit.
+
+---
+
+## References
+
+- [Threading in C# (Joseph Albahari)](https://www.albahari.com/threading/)
+- [Concurrency in C# Cookbook (Stephen Cleary)](https://blog.stephencleary.com/)
+- [System.Threading.Interlocked](https://learn.microsoft.com/dotnet/api/system.threading.interlocked)
+- [ConcurrentDictionary best practices](https://learn.microsoft.com/dotnet/api/system.collections.concurrent.concurrentdictionary-2)
+- [SemaphoreSlim class](https://learn.microsoft.com/dotnet/api/system.threading.semaphoreslim)
+- [ReaderWriterLockSlim class](https://learn.microsoft.com/dotnet/api/system.threading.readwriterlockslim)
+- [Pattern Matching](https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/functional/pattern-matching)
+- [Span<T> and Memory<T>](https://learn.microsoft.com/en-us/dotnet/standard/memory-and-spans/)
+- [Async Best Practices](https://learn.microsoft.com/en-us/archive/msdn-magazine/2013/march/async-await-best-practices-in-asynchronous-programming)

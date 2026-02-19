@@ -28,6 +28,228 @@ Use this skill when:
 
 ---
 
+## Naming Conventions
+
+### General Rules
+
+| Element | Convention | Example |
+|---------|-----------|---------|
+| Namespaces | PascalCase, dot-separated | `MyCompany.MyProduct.Core` |
+| Classes, Records, Structs | PascalCase | `OrderService`, `OrderSummary` |
+| Interfaces | `I` + PascalCase | `IOrderRepository` |
+| Methods | PascalCase | `GetOrderAsync` |
+| Properties | PascalCase | `OrderDate` |
+| Events | PascalCase | `OrderCompleted` |
+| Public constants | PascalCase | `MaxRetryCount` |
+| Private fields | `_camelCase` | `_orderRepository` |
+| Parameters, locals | camelCase | `orderId`, `totalAmount` |
+| Type parameters | `T` or `T` + PascalCase | `T`, `TKey`, `TValue` |
+| Enum members | PascalCase | `OrderStatus.Pending` |
+
+### Async Method Naming
+
+Suffix async methods with `Async`:
+
+```csharp
+public Task<Order> GetOrderAsync(int id);
+public ValueTask SaveChangesAsync(CancellationToken ct);
+
+Exception: Event handlers and interface implementations where the framework does not use the `Async` suffix (e.g., ASP.NET Core middleware `InvokeAsync` is already named by the framework).
+```
+
+### Boolean Naming
+
+Prefix booleans with `is`, `has`, `can`, `should`, or similar:
+
+```csharp
+public bool IsActive { get; set; }
+public bool HasOrders { get; }
+public bool CanDelete(Order order);
+```
+
+### Collection Naming
+
+Use plural nouns for collections:
+
+```csharp
+public IReadOnlyList<Order> Orders { get; }
+public Dictionary<string, int> CountsByName { get; }
+```
+
+---
+
+## File Organization
+
+### One Type Per File
+
+Each top-level type (class, record, struct, interface, enum) should be in its own file, named exactly as the type. Nested types stay in the containing type's file.
+
+```
+OrderService.cs        -> public class OrderService
+IOrderRepository.cs    -> public interface IOrderRepository
+OrderStatus.cs         -> public enum OrderStatus
+OrderSummary.cs        -> public record OrderSummary
+```
+
+### File-Scoped Namespaces
+
+Always use file-scoped namespaces (C# 10+):
+
+```csharp
+namespace MyApp.Services;
+
+public class OrderService { }
+```
+
+### Using Directives
+
+Place `using` directives at the top of the file, outside the namespace. With `<ImplicitUsings>enable</ImplicitUsings>` (default in modern .NET), common namespaces are already imported.
+
+Order of `using` directives:
+1. `System.*` namespaces
+2. Third-party namespaces
+3. Project namespaces
+
+---
+
+## Code Style
+
+### Braces
+
+Always use braces for control flow, even for single-line bodies:
+
+```csharp
+if (order.IsValid)
+{
+    Process(order);
+}
+```
+
+### Expression-Bodied Members
+
+Use expression bodies for single-expression members:
+
+```csharp
+public string FullName => $"{FirstName} {LastName}";
+public override string ToString() => $"Order #{Id}";
+```
+
+### `var` Usage
+
+Use `var` when the type is obvious from the right-hand side:
+
+```csharp
+var orders = new List<Order>();
+var customer = GetCustomerById(id);
+
+IOrderRepository repo = serviceProvider.GetRequiredService<IOrderRepository>();
+decimal total = CalculateTotal(items);
+```
+
+### Null Handling
+
+Prefer pattern matching over null checks:
+
+```csharp
+if (order is not null) { }
+if (order is { Status: OrderStatus.Active }) { }
+
+var name = customer?.Name ?? "Unknown";
+var orders = customer?.Orders ?? [];
+items ??= [];
+```
+
+### String Handling
+
+Prefer string interpolation over concatenation or `string.Format`:
+
+```csharp
+var message = $"Order {orderId} totals {total:C2}";
+
+var json = $$"""
+    {
+        "id": {{orderId}},
+        "name": "{{name}}"
+    }
+    """;
+```
+
+---
+
+## Access Modifiers
+
+Always specify access modifiers explicitly. Do not rely on defaults:
+
+```csharp
+public class OrderService
+{
+    private readonly IOrderRepository _repo;
+    internal void ProcessBatch() { }
+}
+```
+
+### Modifier Order
+
+```
+access (public/private/protected/internal) -> static -> extern -> new ->
+virtual/abstract/override/sealed -> readonly -> volatile -> async -> partial
+```
+
+```csharp
+public static readonly int MaxSize = 100;
+protected virtual async Task<Order> LoadAsync() => await repo.GetDefaultAsync();
+public sealed override string ToString() => Name;
+```
+
+---
+
+## Type Design
+
+### Seal Classes by Default
+
+Seal classes that are not designed for inheritance. This improves performance (devirtualization) and communicates intent:
+
+```csharp
+public sealed class OrderService(IOrderRepository repo)
+{
+}
+```
+
+Only leave classes unsealed when you explicitly design them as base classes.
+
+### Prefer Composition Over Inheritance
+
+```csharp
+public sealed class OrderProcessor(IValidator validator, INotifier notifier)
+{
+    public async Task ProcessAsync(Order order)
+    {
+        await validator.ValidateAsync(order);
+        await notifier.NotifyAsync(order);
+    }
+}
+```
+
+### Interface Segregation
+
+Keep interfaces focused. Prefer multiple small interfaces over one large one:
+
+```csharp
+public interface IOrderReader
+{
+    Task<Order?> GetByIdAsync(int id, CancellationToken ct = default);
+    Task<IReadOnlyList<Order>> GetAllAsync(CancellationToken ct = default);
+}
+
+public interface IOrderWriter
+{
+    Task<Order> CreateAsync(Order order, CancellationToken ct = default);
+    Task UpdateAsync(Order order, CancellationToken ct = default);
+}
+```
+
+---
+
 ## Language Patterns
 
 See [Language Patterns](./reference/language-patterns.md) for detailed guidance on:
@@ -65,7 +287,6 @@ See [Error Handling](./reference/error-handling.md) for detailed guidance on:
 ## Testing Patterns
 
 ```csharp
-// Use record for test data builders
 public record OrderBuilder
 {
     public OrderId Id { get; init; } = OrderId.New();
@@ -76,67 +297,85 @@ public record OrderBuilder
     public Order Build() => new(Id, CustomerId, Total, Items);
 }
 
-// Use 'with' expression for test variations
 [Fact]
 public void CalculateDiscount_LargeOrder_AppliesCorrectDiscount()
 {
-    // Arrange
     var baseOrder = new OrderBuilder().Build();
-    var largeOrder = baseOrder with
-    {
-        Total = new Money(1500m, "USD")
-    };
+    var largeOrder = baseOrder with { Total = new Money(1500m, "USD") };
 
-    // Act
     var discount = _service.CalculateDiscount(largeOrder);
 
-    // Assert
-    discount.Should().Be(new Money(225m, "USD")); // 15% of 1500
+    discount.Should().Be(new Money(225m, "USD"));
 }
 
-// Span-based testing
 [Theory]
 [InlineData("ORD-12345", true)]
 [InlineData("INVALID", false)]
 public void TryParseOrderId_VariousInputs_ReturnsExpectedResult(
-    string input,
-    bool expected)
+    string input, bool expected)
 {
-    // Act
     var result = OrderIdParser.TryParse(input.AsSpan(), out var orderId);
-
-    // Assert
     result.Should().Be(expected);
 }
 
-// Testing with value objects
 [Fact]
 public void Money_Add_SameCurrency_ReturnsSum()
 {
-    // Arrange
     var money1 = new Money(100m, "USD");
     var money2 = new Money(50m, "USD");
 
-    // Act
     var result = money1.Add(money2);
 
-    // Assert
     result.Should().Be(new Money(150m, "USD"));
 }
 
 [Fact]
 public void Money_Add_DifferentCurrency_ThrowsException()
 {
-    // Arrange
     var usd = new Money(100m, "USD");
     var eur = new Money(50m, "EUR");
 
-    // Act & Assert
     var act = () => usd.Add(eur);
     act.Should().Throw<InvalidOperationException>()
         .WithMessage("*different currencies*");
 }
 ```
+
+---
+
+## CancellationToken Conventions
+
+Accept `CancellationToken` as the last parameter in async methods. Use `default` as the default value for optional tokens:
+
+```csharp
+public async Task<Order> GetOrderAsync(int id, CancellationToken ct = default)
+{
+    return await _repo.GetByIdAsync(id, ct);
+}
+```
+
+Always forward the token to downstream async calls. Never ignore a received `CancellationToken`.
+
+---
+
+## XML Documentation
+
+Add XML docs to public API surfaces. Keep them concise:
+
+```csharp
+/// <summary>
+/// Retrieves an order by its unique identifier.
+/// </summary>
+/// <param name="id">The order identifier.</param>
+/// <param name="ct">Cancellation token.</param>
+/// <returns>The order, or <see langword="null"/> if not found.</returns>
+public Task<Order?> GetByIdAsync(int id, CancellationToken ct = default);
+```
+
+Do not add XML docs to:
+- Private or internal members (unless it's a library's `InternalsVisibleTo` API)
+- Self-evident members (e.g., `public string Name { get; }`)
+- Test methods
 
 ---
 
@@ -164,11 +403,8 @@ See [Anti-Patterns](./reference/anti-patterns.md#anti-patterns-to-avoid) for det
 ## Code Organization
 
 ```csharp
-// File: Domain/Orders/Order.cs
-
 namespace MyApp.Domain.Orders;
 
-// 1. Primary domain type
 public record Order(
     OrderId Id,
     CustomerId CustomerId,
@@ -177,10 +413,8 @@ public record Order(
     IReadOnlyList<OrderItem> Items
 )
 {
-    // Computed properties
     public bool IsCompleted => Status is OrderStatus.Completed;
 
-    // Domain methods returning Result for expected errors
     public Result<Order, OrderError> AddItem(OrderItem item)
     {
         if (Status is not OrderStatus.Draft)
@@ -197,7 +431,6 @@ public record Order(
     }
 }
 
-// 2. Enums for state
 public enum OrderStatus
 {
     Draft,
@@ -207,7 +440,6 @@ public enum OrderStatus
     Cancelled
 }
 
-// 3. Related types
 public record OrderItem(
     ProductId ProductId,
     Quantity Quantity,
@@ -219,21 +451,44 @@ public record OrderItem(
         UnitPrice.Currency);
 }
 
-// 4. Value objects
 public readonly record struct OrderId(Guid Value)
 {
     public static OrderId New() => new(Guid.NewGuid());
 }
 
-// 5. Errors
 public readonly record struct OrderError(string Code, string Message);
+```
+
+---
+
+## Analyzer Enforcement
+
+Configure these analyzers in `Directory.Build.props` or `.editorconfig` to enforce standards automatically:
+
+```xml
+<PropertyGroup>
+  <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  <AnalysisLevel>latest-all</AnalysisLevel>
+  <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+</PropertyGroup>
+```
+
+Key `.editorconfig` rules for C# style:
+```ini
+[*.cs]
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_prefer_braces = true:warning
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+dotnet_style_require_accessibility_modifiers = always:warning
+csharp_style_prefer_pattern_matching = true:suggestion
 ```
 
 ---
 
 ## Best Practices Summary
 
-### DO's ✅
+### DO's 
 - Use `record` for DTOs, messages, and domain entities
 - Use `readonly record struct` for value objects
 - Leverage pattern matching with `switch` expressions
@@ -249,7 +504,7 @@ public readonly record struct OrderError(string Code, string Message);
 - Prefer composition over inheritance
 - Avoid abstract base classes in application code
 
-### DON'Ts ❌
+### DON'Ts 
 - Don't use mutable classes when records work
 - Don't use classes for value objects (use `readonly record struct`)
 - Don't create deep inheritance hierarchies
@@ -264,6 +519,15 @@ public readonly record struct OrderError(string Code, string Message);
 
 ---
 
+## Knowledge Sources
+
+Conventions in this skill are grounded in publicly available content from:
+
+- **Microsoft Framework Design Guidelines** -- The canonical reference for .NET naming, type design, and API surface conventions. Source: https://learn.microsoft.com/en-us/dotnet/standard/design-guidelines/
+- **C# Language Design Notes (Mads Torgersen et al.)** -- Design rationale behind C# language features that affect coding standards. Key decisions relevant to this skill: file-scoped namespaces (reducing nesting for readability), pattern matching over type checks (expressiveness), `required` members (compile-time initialization safety), and `var` usage guidelines (readability-first). Source: https://github.com/dotnet/csharplang/tree/main/meetings
+
+---
+
 ## Additional Resources
 
 - **C# Language Specification**: https://learn.microsoft.com/en-us/dotnet/csharp/
@@ -271,3 +535,6 @@ public readonly record struct OrderError(string Code, string Message);
 - **Span<T> and Memory<T>**: https://learn.microsoft.com/en-us/dotnet/standard/memory-and-spans/
 - **Async Best Practices**: https://learn.microsoft.com/en-us/archive/msdn-magazine/2013/march/async-await-best-practices-in-asynchronous-programming
 - **.NET Performance Tips**: https://learn.microsoft.com/en-us/dotnet/framework/performance/
+- **C# Coding Conventions**: https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions
+- **C# Identifier Naming Rules**: https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/identifier-names
+- **.editorconfig for .NET**: https://learn.microsoft.com/en-us/dotnet/fundamentals/code-analysis/code-style-rule-options

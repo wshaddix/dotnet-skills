@@ -1,6 +1,6 @@
 ---
 name: serialization
-description: JSON and binary serialization patterns for .NET applications, including System.Text.Json and protobuf best practices. Use when configuring JSON serialization in .NET applications, choosing between System.Text.Json and Newtonsoft.Json, or implementing Protocol Buffers for high-performance scenarios.
+description: JSON and binary serialization patterns for .NET applications, including System.Text.Json source generators, Protocol Buffers, MessagePack, and AOT-compatible best practices. Use when configuring JSON serialization, choosing between formats, implementing Protocol Buffers for high-performance scenarios, or working with Native AOT.
 ---
 
 # Serialization in .NET
@@ -13,6 +13,23 @@ Use this skill when:
 - Implementing AOT-compatible serialization
 - Designing wire formats for distributed systems
 - Optimizing serialization performance
+
+---
+
+## Serialization Format Comparison
+
+| Format | Library | AOT-Safe | Human-Readable | Relative Size | Relative Speed | Best For |
+|--------|---------|----------|----------------|---------------|----------------|----------|
+| JSON | System.Text.Json (source gen) | Yes | Yes | Largest | Good | APIs, config, web clients |
+| Protobuf | Google.Protobuf | Yes | No | Smallest | Fastest | Service-to-service, gRPC wire format |
+| MessagePack | MessagePack-CSharp | Yes (with AOT resolver) | No | Small | Fast | High-throughput caching, real-time |
+| JSON | Newtonsoft.Json | **No** (reflection) | Yes | Largest | Slower | **Legacy only -- do not use for AOT** |
+
+### When to Choose What
+
+- **System.Text.Json with source generators**: Default choice for APIs, configuration, and any scenario where human-readable output or web client consumption matters. AOT-safe.
+- **Protobuf**: Default wire format for gRPC. Best throughput and smallest payload size for service-to-service communication. Schema-first development with `.proto` files.
+- **MessagePack**: When you need binary compactness without `.proto` schema management. Good for caching layers, real-time messaging, and high-throughput scenarios.
 
 ---
 
@@ -29,20 +46,6 @@ Use this skill when:
 
 **Recommendation**: Use schema-based serialization for anything that crosses process boundaries.
 
----
-
-## Format Recommendations
-
-| Use Case | Recommended Format | Why |
-|----------|-------------------|-----|
-| **REST APIs** | System.Text.Json (source gen) | Standard, AOT-compatible |
-| **gRPC** | Protocol Buffers | Native format, excellent versioning |
-| **Actor messaging** | MessagePack or Protobuf | Compact, fast, version-safe |
-| **Event sourcing** | Protobuf or MessagePack | Must handle old events forever |
-| **Caching** | MessagePack | Compact, fast |
-| **Configuration** | JSON (System.Text.Json) | Human-readable |
-| **Logging** | JSON (System.Text.Json) | Structured, parseable |
-
 ### Formats to Avoid
 
 | Format | Problem |
@@ -58,42 +61,106 @@ Use this skill when:
 
 For JSON serialization, use System.Text.Json with source generators for AOT compatibility and performance.
 
-### Setup
+### Basic Setup
 
 ```csharp
-// Define a JsonSerializerContext with all your types
+using System.Text.Json.Serialization;
+
 [JsonSerializable(typeof(Order))]
-[JsonSerializable(typeof(OrderItem))]
-[JsonSerializable(typeof(Customer))]
 [JsonSerializable(typeof(List<Order>))]
-[JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-public partial class AppJsonContext : JsonSerializerContext { }
+[JsonSerializable(typeof(OrderStatus))]
+public partial class AppJsonContext : JsonSerializerContext
+{
+}
 ```
 
-### Usage
+### Using the Generated Context
 
 ```csharp
-// Serialize with context
-var json = JsonSerializer.Serialize(order, AppJsonContext.Default.Order);
+// Serialize
+string json = JsonSerializer.Serialize(order, AppJsonContext.Default.Order);
 
-// Deserialize with context
-var order = JsonSerializer.Deserialize(json, AppJsonContext.Default.Order);
+// Deserialize
+Order? result = JsonSerializer.Deserialize(json, AppJsonContext.Default.Order);
 
-// Configure in ASP.NET Core
+// With options
+var options = new JsonSerializerOptions
+{
+    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    TypeInfoResolver = AppJsonContext.Default
+};
+
+string json = JsonSerializer.Serialize(order, options);
+```
+
+### ASP.NET Core Integration
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+// Minimal APIs
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default);
 });
+
+// MVC Controllers
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default);
+    });
 ```
 
-### Benefits
+### Combining Multiple Contexts
 
-- **No reflection at runtime** - All type info generated at compile time
-- **AOT compatible** - Works with Native AOT publishing
-- **Faster** - No runtime type analysis
-- **Trim-safe** - Linker knows exactly what's needed
+```csharp
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.TypeInfoResolver = JsonTypeInfoResolver.Combine(
+        AppJsonContext.Default,
+        CatalogJsonContext.Default,
+        InventoryJsonContext.Default
+    );
+});
+```
+
+### Common Configuration
+
+```csharp
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    WriteIndented = false)]
+[JsonSerializable(typeof(Order))]
+[JsonSerializable(typeof(List<Order>))]
+public partial class AppJsonContext : JsonSerializerContext
+{
+}
+```
+
+### Handling Polymorphism
+
+```csharp
+[JsonDerivedType(typeof(CreditCardPayment), "credit_card")]
+[JsonDerivedType(typeof(BankTransferPayment), "bank_transfer")]
+[JsonDerivedType(typeof(WalletPayment), "wallet")]
+public abstract class Payment
+{
+    public decimal Amount { get; init; }
+    public string Currency { get; init; } = "USD";
+}
+
+public class CreditCardPayment : Payment
+{
+    public string Last4Digits { get; init; } = "";
+}
+
+[JsonSerializable(typeof(Payment))]
+public partial class AppJsonContext : JsonSerializerContext
+{
+}
+```
 
 ---
 
@@ -101,34 +168,58 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 Best for: Actor systems, gRPC, event sourcing, any long-lived wire format.
 
-### Setup
+### Packages
 
-```bash
-dotnet add package Google.Protobuf
-dotnet add package Grpc.Tools
+```xml
+<PackageReference Include="Google.Protobuf" Version="3.*" />
+<PackageReference Include="Grpc.Tools" Version="2.*" PrivateAssets="All" />
 ```
 
-### Define Schema
+### Proto File
 
 ```protobuf
-// orders.proto
 syntax = "proto3";
 
-message Order {
-    string id = 1;
-    string customer_id = 2;
-    repeated OrderItem items = 3;
-    int64 created_at_ticks = 4;
+import "google/protobuf/timestamp.proto";
 
-    // Adding new fields is always safe
-    string notes = 5;  // Added in v2 - old readers ignore it
+option csharp_namespace = "MyApp.Contracts";
+
+message OrderMessage {
+  int32 id = 1;
+  string customer_id = 2;
+  repeated OrderItemMessage items = 3;
+  google.protobuf.Timestamp created_at = 4;
 }
 
-message OrderItem {
-    string product_id = 1;
-    int32 quantity = 2;
-    int64 price_cents = 3;
+message OrderItemMessage {
+  string product_id = 1;
+  int32 quantity = 2;
+  double unit_price = 3;
 }
+```
+
+### Standalone Protobuf (Without gRPC)
+
+```csharp
+using Google.Protobuf;
+
+// Serialize to bytes
+byte[] bytes = order.ToByteArray();
+
+// Deserialize from bytes
+var restored = OrderMessage.Parser.ParseFrom(bytes);
+
+// Serialize to stream
+using var stream = File.OpenWrite("order.bin");
+order.WriteTo(stream);
+```
+
+### Proto File Registration in .csproj
+
+```xml
+<ItemGroup>
+  <Protobuf Include="Protos\*.proto" GrpcServices="Both" />
+</ItemGroup>
 ```
 
 ### Versioning Rules
@@ -136,28 +227,26 @@ message OrderItem {
 ```protobuf
 // SAFE: Add new fields with new numbers
 message Order {
-    string id = 1;
-    string customer_id = 2;
-    string shipping_address = 5;  // NEW - safe
+  string id = 1;
+  string customer_id = 2;
+  string shipping_address = 5;  // NEW - safe
 }
 
-// SAFE: Remove fields (old readers ignore unknown, new readers use default)
-// Just stop using the field, keep the number reserved
+// SAFE: Remove fields (keep the number reserved)
 message Order {
-    string id = 1;
-    // customer_id removed, but field 2 is reserved
-    reserved 2;
+  string id = 1;
+  reserved 2;  // customer_id removed
 }
 
 // UNSAFE: Change field types
 message Order {
-    int32 id = 1;  // Was: string - BREAKS!
+  int32 id = 1;  // Was: string - BREAKS!
 }
 
 // UNSAFE: Reuse field numbers
 message Order {
-    reserved 2;
-    string new_field = 2;  // Reusing 2 - BREAKS!
+  reserved 2;
+  string new_field = 2;  // Reusing 2 - BREAKS!
 }
 ```
 
@@ -167,113 +256,58 @@ message Order {
 
 Best for: High-performance scenarios, compact payloads, actor messaging.
 
-### Setup
+### Packages
 
-```bash
-dotnet add package MessagePack
-dotnet add package MessagePack.Annotations
+```xml
+<PackageReference Include="MessagePack" Version="3.*" />
+<PackageReference Include="MessagePack.SourceGenerator" Version="3.*" />
 ```
 
-### Usage with Contracts
+### Basic Usage with Source Generator (AOT-Safe)
 
 ```csharp
+using MessagePack;
+
 [MessagePackObject]
-public sealed class Order
+public partial class Order
 {
     [Key(0)]
-    public required string Id { get; init; }
+    public int Id { get; init; }
 
     [Key(1)]
-    public required string CustomerId { get; init; }
+    public string CustomerId { get; init; } = "";
 
     [Key(2)]
-    public required IReadOnlyList<OrderItem> Items { get; init; }
+    public List<OrderItem> Items { get; init; } = [];
 
     [Key(3)]
-    public required DateTimeOffset CreatedAt { get; init; }
+    public DateTimeOffset CreatedAt { get; init; }
 
-    // New field - old readers skip unknown keys
     [Key(4)]
     public string? Notes { get; init; }
 }
+```
 
+### Serialization
+
+```csharp
 // Serialize
-var bytes = MessagePackSerializer.Serialize(order);
+byte[] bytes = MessagePackSerializer.Serialize(order);
 
 // Deserialize
-var order = MessagePackSerializer.Deserialize<Order>(bytes);
+var restored = MessagePackSerializer.Deserialize<Order>(bytes);
+
+// With compression (LZ4)
+var lz4Options = MessagePackSerializerOptions.Standard.WithCompression(
+    MessagePackCompression.Lz4BlockArray);
+byte[] compressed = MessagePackSerializer.Serialize(order, lz4Options);
 ```
 
-### AOT-Compatible Setup
+### AOT Resolver Setup
 
 ```csharp
-// Use source generator for AOT
-[MessagePackObject]
-public partial class Order { }  // partial enables source gen
-
-// Configure resolver
-var options = MessagePackSerializerOptions.Standard
-    .WithResolver(CompositeResolver.Create(
-        GeneratedResolver.Instance,  // Generated
-        StandardResolver.Instance));
-```
-
----
-
-## Migrating from Newtonsoft.Json
-
-### Common Issues
-
-| Newtonsoft | System.Text.Json | Fix |
-|------------|------------------|-----|
-| `$type` in JSON | Not supported by default | Use discriminators or custom converters |
-| `JsonProperty` | `JsonPropertyName` | Different attribute |
-| `DefaultValueHandling` | `DefaultIgnoreCondition` | Different API |
-| `NullValueHandling` | `DefaultIgnoreCondition` | Different API |
-| Private setters | Requires `[JsonInclude]` | Explicit opt-in |
-| Polymorphism | `[JsonDerivedType]` (.NET 7+) | Explicit discriminators |
-
-### Migration Pattern
-
-```csharp
-// Newtonsoft (reflection-based)
-public class Order
-{
-    [JsonProperty("order_id")]
-    public string Id { get; set; }
-
-    [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-    public string? Notes { get; set; }
-}
-
-// System.Text.Json (source-gen compatible)
-public sealed record Order(
-    [property: JsonPropertyName("order_id")]
-    string Id,
-
-    string? Notes  // Null handling via JsonSerializerOptions
-);
-
-[JsonSerializable(typeof(Order))]
-[JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-public partial class OrderJsonContext : JsonSerializerContext { }
-```
-
-### Polymorphism with Discriminators
-
-```csharp
-// .NET 7+ polymorphism
-[JsonDerivedType(typeof(CreditCardPayment), "credit_card")]
-[JsonDerivedType(typeof(BankTransferPayment), "bank_transfer")]
-public abstract record Payment(decimal Amount);
-
-public sealed record CreditCardPayment(decimal Amount, string Last4) : Payment(Amount);
-public sealed record BankTransferPayment(decimal Amount, string AccountNumber) : Payment(Amount);
-
-// Serializes as:
-// { "$type": "credit_card", "amount": 100, "last4": "1234" }
+MessagePackSerializer.DefaultOptions = MessagePackSerializerOptions.Standard
+    .WithResolver(GeneratedResolver.Instance);
 ```
 
 ---
@@ -306,7 +340,7 @@ public Order Deserialize(byte[] data, string manifest) => manifest switch
     _ => throw new NotSupportedException()
 };
 
-// Phase 2: Enable serializer (next release, after V1 deployed everywhere)
+// Phase 2: Enable serializer (after V1 deployed everywhere)
 public (byte[] data, string manifest) Serialize(Order order) =>
     _useV2Format
         ? (SerializeV2(order), "Order.V2")
@@ -318,14 +352,14 @@ public (byte[] data, string manifest) Serialize(Order order) =>
 ```csharp
 // BAD: Type name in payload - renaming class breaks wire format
 {
-    "$type": "MyApp.Order, MyApp.Core",
-    "id": "123"
+    "$type": "MyApp.Order, MyApp",
+    "id": 123
 }
 
 // GOOD: Explicit discriminator - refactoring safe
 {
     "type": "order",
-    "id": "123"
+    "id": 123
 }
 ```
 
@@ -343,7 +377,50 @@ Approximate throughput (higher is better):
 | System.Text.Json (reflection) | ★★★☆☆ | ★★★☆☆ | ★★★☆☆ |
 | Newtonsoft.Json | ★★☆☆☆ | ★★☆☆☆ | ★★★☆☆ |
 
-For hot paths, prefer MessagePack or Protobuf.
+### Optimization Tips
+
+- **Reuse `JsonSerializerOptions`** -- creating options is expensive
+- **Use `JsonSerializerContext`** -- eliminates warm-up cost
+- **Use `Utf8JsonWriter` / `Utf8JsonReader`** for streaming scenarios
+- **Use Protobuf `ByteString`** for binary data instead of base64-encoded strings
+- **Enable MessagePack LZ4 compression** for large payloads
+
+---
+
+## Anti-Patterns: Reflection-Based Serialization
+
+**Do not use reflection-based serializers in Native AOT or trimming scenarios.**
+
+### Newtonsoft.Json (JsonConvert)
+
+```csharp
+// BAD: Reflection-based -- fails under AOT/trimming
+var json = JsonConvert.SerializeObject(order);
+var order = JsonConvert.DeserializeObject<Order>(json);
+
+// GOOD: Source-generated -- AOT-safe
+var json = JsonSerializer.Serialize(order, AppJsonContext.Default.Order);
+var order = JsonSerializer.Deserialize(json, AppJsonContext.Default.Order);
+```
+
+### System.Text.Json Without Source Generators
+
+```csharp
+// BAD: No context -- uses runtime reflection
+var json = JsonSerializer.Serialize(order);
+
+// GOOD: Explicit context -- uses source-generated code
+var json = JsonSerializer.Serialize(order, AppJsonContext.Default.Order);
+```
+
+### Migration Path from Newtonsoft.Json
+
+1. Replace `JsonConvert.SerializeObject` / `DeserializeObject` with `JsonSerializer.Serialize` / `Deserialize`
+2. Replace `[JsonProperty]` with `[JsonPropertyName]`
+3. Replace `JsonConverter` base class with `JsonConverter<T>` from System.Text.Json
+4. Create a `JsonSerializerContext` with `[JsonSerializable]` for all serialized types
+5. Replace `JObject` / `JToken` dynamic access with `JsonDocument` / `JsonElement` or strongly-typed models
+6. Test serialization round-trips -- attribute semantics differ
 
 ---
 
@@ -364,49 +441,35 @@ akka {
 }
 ```
 
-See [Akka.NET Serialization Docs](https://getakka.net/articles/networking/serialization.html).
+---
+
+## Key Principles
+
+- **Default to System.Text.Json with source generators** for all JSON serialization
+- **Use Protobuf for service-to-service binary serialization**
+- **Use MessagePack for high-throughput caching and real-time**
+- **Never use Newtonsoft.Json for new AOT-targeted projects**
+- **Always register `JsonSerializerContext` in ASP.NET Core**
+- **Annotate all serialized types** -- source generators only generate code for listed types
 
 ---
 
-## Best Practices
+## Agent Gotchas
 
-### DO
-
-```csharp
-// Use source generators for System.Text.Json
-[JsonSerializable(typeof(Order))]
-public partial class AppJsonContext : JsonSerializerContext { }
-
-// Use explicit field numbers/keys
-[MessagePackObject]
-public class Order
-{
-    [Key(0)] public string Id { get; init; }
-}
-
-// Use records for immutable message types
-public sealed record OrderCreated(OrderId Id, CustomerId CustomerId);
-```
-
-### DON'T
-
-```csharp
-// Don't use BinaryFormatter (ever)
-var formatter = new BinaryFormatter();  // Security risk!
-
-// Don't embed type names in wire format
-settings.TypeNameHandling = TypeNameHandling.All;  // Breaks on rename!
-
-// Don't use reflection serialization for hot paths
-JsonConvert.SerializeObject(order);  // Slow, not AOT-compatible
-```
+1. **Do not use `JsonSerializer.Serialize(obj)` without a context in AOT projects** -- it falls back to reflection.
+2. **Do not forget to list collection types in `[JsonSerializable]`** -- `[JsonSerializable(typeof(Order))]` does not cover `List<Order>`.
+3. **Do not use Newtonsoft.Json `[JsonProperty]` attributes with System.Text.Json** -- they are silently ignored.
+4. **Do not mix MessagePack `[Key]` integer keys with `[Key]` string keys** in the same type hierarchy.
+5. **Do not omit `GrpcServices` attribute on `<Protobuf>` items** -- without it, both client and server stubs are generated.
 
 ---
 
 ## Resources
 
 - **System.Text.Json Source Generation**: https://learn.microsoft.com/en-us/dotnet/standard/serialization/system-text-json/source-generation
+- **Migrate from Newtonsoft.Json to System.Text.Json**: https://learn.microsoft.com/en-us/dotnet/standard/serialization/system-text-json/migrate-from-newtonsoft
 - **Protocol Buffers**: https://protobuf.dev/
 - **MessagePack-CSharp**: https://github.com/MessagePack-CSharp/MessagePack-CSharp
 - **Akka.NET Serialization**: https://getakka.net/articles/networking/serialization.html
 - **Wire Compatibility**: https://getakka.net/community/contributing/wire-compatibility.html
+- **Native AOT deployment**: https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/

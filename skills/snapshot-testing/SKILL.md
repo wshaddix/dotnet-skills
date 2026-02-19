@@ -1,6 +1,6 @@
 ---
 name: snapshot-testing
-description: Patterns for snapshot testing in .NET applications to detect unexpected changes in output. Use when implementing snapshot tests for API responses, verifying UI component renders, or detecting unintended changes in serialization output.
+description: Patterns for snapshot testing in .NET applications using Verify. Covers API responses, scrubbing non-deterministic values, custom converters, HTTP response testing, email templates, and CI/CD integration. Use when implementing snapshot tests for API responses, verifying UI component renders, detecting unintended changes in serialization output, or approving public API surfaces.
 ---
 
 # Snapshot Testing with Verify
@@ -29,22 +29,21 @@ This catches **unintended changes** while allowing **intentional changes** throu
 
 ---
 
-## Installation
+## Setup
 
-### Add Verify Package
+### Packages
 
-```bash
-dotnet add package Verify.Xunit
-# or for other test frameworks:
-dotnet add package Verify.NUnit
-dotnet add package Verify.MSTest
+```xml
+<PackageReference Include="Verify.Xunit" Version="20.*" />
+<PackageReference Include="Verify.Http" Version="6.*" />
 ```
 
-### Configure ModuleInitializer
+### Module Initializer
 
-Create a `ModuleInitializer.cs` in your test project:
+Verify requires a one-time initialization per test assembly:
 
 ```csharp
+// ModuleInitializer.cs
 using System.Runtime.CompilerServices;
 
 public static class ModuleInitializer
@@ -55,83 +54,252 @@ public static class ModuleInitializer
         // Use source-file-relative paths for verified files
         VerifyBase.UseProjectRelativeDirectory("Snapshots");
 
-        // Configure diff tool (optional - auto-detected)
-        // DiffTools.UseOrder(DiffTool.Rider, DiffTool.VisualStudioCode);
+        // Scrub common non-deterministic types globally
+        VerifierSettings.ScrubMembersWithType<DateTime>();
+        VerifierSettings.ScrubMembersWithType<DateTimeOffset>();
+        VerifierSettings.ScrubMembersWithType<Guid>();
+
+        // In CI, fail instead of launching diff tool
+        if (Environment.GetEnvironmentVariable("CI") is not null)
+        {
+            DiffRunner.Disabled = true;
+        }
     }
 }
+```
+
+### Source Control
+
+Add to `.gitignore`:
+
+```gitignore
+# Verify received files (test failures)
+*.received.*
+```
+
+Add to `.gitattributes`:
+
+```gitattributes
+*.verified.txt text eol=lf
+*.verified.xml text eol=lf
+*.verified.json text eol=lf
+*.verified.html text eol=lf
 ```
 
 ---
 
 ## Basic Usage
 
-### Simple Object Verification
+### Verifying Objects
+
+```csharp
+[UsesVerify]
+public class OrderSerializationTests
+{
+    [Fact]
+    public Task Serialize_CompletedOrder_MatchesSnapshot()
+    {
+        var order = new Order
+        {
+            Id = 1,
+            CustomerId = "cust-123",
+            Status = OrderStatus.Completed,
+            Items =
+            [
+                new OrderItem("SKU-001", Quantity: 2, UnitPrice: 29.99m),
+                new OrderItem("SKU-002", Quantity: 1, UnitPrice: 49.99m)
+            ],
+            Total = 109.97m
+        };
+
+        return Verify(order);
+    }
+}
+```
+
+Creates `OrderSerializationTests.Serialize_CompletedOrder_MatchesSnapshot.verified.txt`.
+
+### Verifying Strings and Streams
 
 ```csharp
 [Fact]
-public Task VerifyUserDto()
+public Task RenderInvoice_MatchesExpectedHtml()
 {
-    var user = new UserDto(
-        Id: "user-123",
-        Name: "John Doe",
-        Email: "john@example.com",
-        CreatedAt: new DateTime(2025, 1, 15));
-
-    return Verify(user);
+    var html = invoiceRenderer.Render(order);
+    return Verify(html, extension: "html");
 }
-```
 
-Creates `VerifyUserDto.verified.txt`:
-```json
-{
-  Id: user-123,
-  Name: John Doe,
-  Email: john@example.com,
-  CreatedAt: 2025-01-15T00:00:00
-}
-```
-
-### String/HTML Verification
-
-```csharp
 [Fact]
-public async Task VerifyRenderedEmail()
+public Task ExportReport_MatchesExpectedXml()
 {
-    var html = await _emailRenderer.RenderAsync("Welcome", new { Name = "John" });
-
-    // Use extension parameter for proper file naming
-    await Verify(html, extension: "html");
+    var stream = reportExporter.Export(report);
+    return Verify(stream, extension: "xml");
 }
 ```
-
-Creates `VerifyRenderedEmail.verified.html` - viewable in browser.
 
 ---
 
-## Email Template Testing
+## Scrubbing and Filtering
 
-Use Verify to catch unintended changes in rendered email templates:
+Non-deterministic values (dates, GUIDs, auto-incremented IDs) change between test runs. Scrubbing replaces them with stable placeholders.
+
+### Built-In Scrubbers
 
 ```csharp
 [Fact]
-public async Task UserSignupInvitation_RendersCorrectly()
+public Task CreateOrder_ScrubsNonDeterministicValues()
 {
-    var renderer = _services.GetRequiredService<IMjmlTemplateRenderer>();
-
-    var variables = new Dictionary<string, string>
+    var order = new Order
     {
-        { "OrganizationName", "Acme Corporation" },
-        { "InviteeName", "John Doe" },
-        { "InviterName", "Jane Admin" },
-        { "InvitationLink", "https://example.com/invite/abc123" },
-        { "ExpirationDate", "December 31, 2025" }
+        Id = Guid.NewGuid(),          // Scrubbed to Guid_1
+        CreatedAt = DateTime.UtcNow,  // Scrubbed to DateTime_1
+        TrackingNumber = Guid.NewGuid().ToString() // Scrubbed to Guid_2
     };
 
-    var html = await renderer.RenderTemplateAsync(
-        "UserInvitations/UserSignupInvitation",
-        variables);
+    return Verify(order);
+}
+```
 
-    await Verify(html, extension: "html");
+Produces stable output:
+```txt
+{
+  Id: Guid_1,
+  CreatedAt: DateTime_1,
+  TrackingNumber: Guid_2
+}
+```
+
+### Custom Scrubbers
+
+```csharp
+[Fact]
+public Task AuditLog_ScrubsTimestampsAndMachineNames()
+{
+    var log = auditService.GetRecentEntries();
+
+    return Verify(log)
+        .ScrubLinesWithReplace(line =>
+            Regex.Replace(line, @"Machine:\s+\w+", "Machine: Scrubbed"))
+        .ScrubLinesContaining("CorrelationId:");
+}
+```
+
+### Ignoring Members
+
+```csharp
+[Fact]
+public Task OrderSnapshot_IgnoresVolatileFields()
+{
+    var order = orderService.CreateOrder(request);
+
+    return Verify(order)
+        .IgnoreMember("CreatedAt")
+        .IgnoreMember("UpdatedAt")
+        .IgnoreMember("ETag");
+}
+```
+
+### Scrubbing Inline Values
+
+```csharp
+[Fact]
+public Task ApiResponse_ScrubsTokens()
+{
+    var response = authService.GenerateTokenResponse(user);
+
+    return Verify(response)
+        .ScrubLinesWithReplace(line =>
+            Regex.Replace(line, @"Bearer [A-Za-z0-9\-._~+/]+=*", "Bearer {scrubbed}"));
+}
+```
+
+---
+
+## Verifying HTTP Responses
+
+### Full HTTP Responses
+
+```csharp
+[UsesVerify]
+public class OrdersApiSnapshotTests : IClassFixture<WebApplicationFactory<Program>>
+{
+    private readonly HttpClient _client;
+
+    public OrdersApiSnapshotTests(WebApplicationFactory<Program> factory)
+    {
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task GetOrders_ResponseMatchesSnapshot()
+    {
+        var response = await _client.GetAsync("/api/orders");
+        await Verify(response);
+    }
+}
+```
+
+### Specific Response Parts
+
+```csharp
+[Fact]
+public async Task CreateOrder_VerifyResponseBody()
+{
+    var response = await _client.PostAsJsonAsync("/api/orders", request);
+    var body = await response.Content.ReadFromJsonAsync<OrderDto>();
+
+    await Verify(body)
+        .IgnoreMember("Id")
+        .IgnoreMember("CreatedAt");
+}
+```
+
+---
+
+## Verifying Rendered Emails
+
+Snapshot-test email templates by verifying the rendered HTML output:
+
+```csharp
+[UsesVerify]
+public class EmailTemplateTests
+{
+    private readonly EmailRenderer _renderer = new();
+
+    [Fact]
+    public Task OrderConfirmation_MatchesSnapshot()
+    {
+        var model = new OrderConfirmationModel
+        {
+            CustomerName = "Alice Johnson",
+            OrderNumber = "ORD-001",
+            Items =
+            [
+                new("Widget A", Quantity: 2, Price: 29.99m),
+                new("Widget B", Quantity: 1, Price: 49.99m)
+            ],
+            Total = 109.97m
+        };
+
+        var html = _renderer.RenderOrderConfirmation(model);
+        return Verify(html, extension: "html");
+    }
+
+    [Fact]
+    public Task PasswordReset_MatchesSnapshot()
+    {
+        var model = new PasswordResetModel
+        {
+            UserName = "alice",
+            ResetLink = "https://example.com/reset?token=test-token"
+        };
+
+        var html = _renderer.RenderPasswordReset(model);
+
+        return Verify(html, extension: "html")
+            .ScrubLinesWithReplace(line =>
+                Regex.Replace(line, @"token=[^""&]+", "token={scrubbed}"));
+    }
 }
 ```
 
@@ -170,9 +338,9 @@ public Task ApprovePublicApi()
 
 Or use the dedicated ApiApprover package:
 
-```bash
-dotnet add package PublicApiGenerator
-dotnet add package Verify.Xunit
+```xml
+<PackageReference Include="PublicApiGenerator" />
+<PackageReference Include="Verify.Xunit" />
 ```
 
 ```csharp
@@ -188,132 +356,129 @@ Creates `.verified.txt` with full API surface - any change requires explicit app
 
 ---
 
-## HTTP Response Testing
+## Custom Converters
+
+Control how specific types are serialized for verification:
 
 ```csharp
-[Fact]
-public async Task GetUser_ReturnsExpectedResponse()
+public class MoneyConverter : WriteOnlyJsonConverter<Money>
 {
-    var client = _factory.CreateClient();
-
-    var response = await client.GetAsync("/api/users/123");
-
-    // Verify status, headers, and body together
-    await Verify(new
+    public override void Write(VerifyJsonWriter writer, Money value)
     {
-        StatusCode = response.StatusCode,
-        Headers = response.Headers
-            .Where(h => h.Key.StartsWith("X-"))  // Custom headers only
-            .ToDictionary(h => h.Key, h => h.Value.First()),
-        Body = await response.Content.ReadAsStringAsync()
+        writer.WriteStartObject();
+        writer.WriteMember(value, value.Amount, "Amount");
+        writer.WriteMember(value, value.Currency.Code, "Currency");
+        writer.WriteEndObject();
+    }
+}
+
+public class AddressConverter : WriteOnlyJsonConverter<Address>
+{
+    public override void Write(VerifyJsonWriter writer, Address value)
+    {
+        // Single-line summary for compact snapshots
+        writer.WriteValue($"{value.Street}, {value.City}, {value.State} {value.Zip}");
+    }
+}
+```
+
+Register in the module initializer:
+
+```csharp
+[ModuleInitializer]
+public static void Init()
+{
+    VerifierSettings.AddExtraSettings(settings =>
+    {
+        settings.Converters.Add(new MoneyConverter());
+        settings.Converters.Add(new AddressConverter());
     });
 }
 ```
 
 ---
 
-## Scrubbing Dynamic Values
+## Snapshot File Organization
 
-Handle timestamps, GUIDs, and other dynamic content:
+### Unique Directory
 
-```csharp
-[Fact]
-public Task VerifyOrder()
-{
-    var order = new Order
-    {
-        Id = Guid.NewGuid(),  // Different every run
-        CreatedAt = DateTime.UtcNow,  // Different every run
-        Total = 99.99m
-    };
-
-    return Verify(order)
-        .ScrubMember("Id")  // Replace with placeholder
-        .ScrubMember("CreatedAt");
-}
-```
-
-Output:
-```json
-{
-  Id: Guid_1,
-  CreatedAt: DateTime_1,
-  Total: 99.99
-}
-```
-
-### Global Scrubbing
-
-Configure in `ModuleInitializer`:
+Move verified files into a dedicated directory:
 
 ```csharp
 [ModuleInitializer]
 public static void Init()
 {
-    VerifierSettings.ScrubMembersWithType<DateTime>();
-    VerifierSettings.ScrubMembersWithType<DateTimeOffset>();
-    VerifierSettings.ScrubMembersWithType<Guid>();
-
-    // Scrub specific patterns
-    VerifierSettings.AddScrubber(s =>
-        Regex.Replace(s, @"token=[a-zA-Z0-9]+", "token=SCRUBBED"));
+    Verifier.DerivePathInfo(
+        (sourceFile, projectDirectory, type, method) =>
+            new PathInfo(
+                directory: Path.Combine(projectDirectory, "Snapshots"),
+                typeName: type.Name,
+                methodName: method.Name));
 }
+```
+
+### Parameterized Tests
+
+For `[Theory]` tests, use `UseParameters()`:
+
+```csharp
+[Theory]
+[InlineData("en-US")]
+[InlineData("de-DE")]
+[InlineData("ja-JP")]
+public Task FormatCurrency_ByLocale_MatchesSnapshot(string locale)
+{
+    var formatted = currencyFormatter.Format(1234.56m, locale);
+    return Verify(formatted).UseParameters(locale);
+}
+```
+
+Creates separate files:
+```
+FormatCurrencyTests.FormatCurrency_ByLocale_MatchesSnapshot_locale=en-US.verified.txt
+FormatCurrencyTests.FormatCurrency_ByLocale_MatchesSnapshot_locale=de-DE.verified.txt
+FormatCurrencyTests.FormatCurrency_ByLocale_MatchesSnapshot_locale=ja-JP.verified.txt
 ```
 
 ---
 
-## File Organization
+## Workflow: Accepting Changes
 
-### Recommended Structure
+### Diff Tool Integration
 
-```
-tests/
-  MyApp.Tests/
-    Snapshots/           # All verified files
-      EmailTests/
-        WelcomeEmail.verified.html
-        PasswordReset.verified.html
-      ApiTests/
-        GetUser.verified.txt
-    EmailTests.cs
-    ApiTests.cs
-    ModuleInitializer.cs
+```csharp
+[ModuleInitializer]
+public static void Init()
+{
+    // Verify auto-detects installed diff tools
+    // Override if needed:
+    DiffTools.UseOrder(DiffTool.VisualStudioCode, DiffTool.Rider);
+}
 ```
 
-### .gitignore
+### CLI Acceptance
 
-```gitignore
-# Verify - ignore received files (only commit verified)
-*.received.*
+```bash
+# Install the Verify CLI tool (one-time)
+dotnet tool install -g verify.tool
+
+# Accept all received files
+verify accept
+
+# Accept for a specific test project
+verify accept --project tests/MyApp.Tests
 ```
 
-### .gitattributes
+### CI Behavior
 
-```gitattributes
-# Treat verified files as generated (collapse in PR diffs)
-*.verified.txt linguist-generated=true
-*.verified.html linguist-generated=true
-*.verified.json linguist-generated=true
+```yaml
+env:
+  DiffEngine_Disabled: true
 ```
 
 ---
 
 ## CI/CD Integration
-
-### Fail on Missing Verified Files
-
-```csharp
-[ModuleInitializer]
-public static void Init()
-{
-    // In CI, fail instead of launching diff tool
-    if (Environment.GetEnvironmentVariable("CI") == "true")
-    {
-        VerifyDiffPlex.UseDiffPlex(OutputType.Minimal);
-        DiffRunner.Disabled = true;
-    }
-}
-```
 
 ### GitHub Actions
 
@@ -346,6 +511,17 @@ public static void Init()
 | Simple value checks | No | Use regular assertions |
 | Business logic | No | Use explicit assertions |
 | Performance tests | No | Use benchmarks |
+
+---
+
+## Key Principles
+
+- **Snapshot test complex outputs, not simple values.** If the expected value fits in a single `Assert.Equal`, prefer that.
+- **Scrub all non-deterministic values.** Dates, GUIDs, timestamps must be scrubbed.
+- **Commit `.verified.txt` files to source control.** Never add `.received.txt` files.
+- **Review snapshot diffs carefully.** Accepting without review can silently approve regressions.
+- **Use custom converters for domain readability.** Default serialization may be verbose.
+- **Keep snapshots focused.** Use `IgnoreMember` to exclude volatile fields.
 
 ---
 
@@ -384,26 +560,23 @@ await Verify(result.Count);  // Just use Assert.Equal(5, result.Count)
 
 ---
 
-## Integration with MJML Email Testing
+## Agent Gotchas
 
-See the `aspnetcore/transactional-emails` skill for the complete pattern:
-
-1. MJML templates with `{{variable}}` placeholders
-2. Render to HTML with test data
-3. Snapshot test the rendered output
-4. Review changes in diff tool before approving
-
-This catches:
-- Broken variable substitution
-- CSS/layout regressions
-- Email client compatibility issues
-- Unintended content changes
+1. **Do not forget `[UsesVerify]` on the test class.** Without it, `Verify()` calls fail at runtime.
+2. **Do not commit `.received.txt` files.** Add `*.received.*` to `.gitignore`.
+3. **Do not skip `UseParameters()` in parameterized tests.** All combinations write to the same file.
+4. **Do not scrub values that are part of the contract.** Only scrub genuinely non-deterministic values.
+5. **Do not use snapshot testing for rapidly evolving APIs.** Wait until the API stabilizes.
+6. **Do not hardcode Verify package versions across different test frameworks.** Use version ranges (`20.*`).
 
 ---
 
-## Resources
+## References
 
-- **Verify GitHub**: https://github.com/VerifyTests/Verify
-- **Verify.Xunit**: https://github.com/VerifyTests/Verify.Xunit
-- **ApiApprover**: https://github.com/JakeGinnivan/ApiApprover
-- **DiffPlex Integration**: https://github.com/VerifyTests/Verify.DiffPlex
+- [Verify GitHub repository](https://github.com/VerifyTests/Verify)
+- [Verify documentation](https://github.com/VerifyTests/Verify/blob/main/docs/readme.md)
+- [Verify.Http for HTTP response testing](https://github.com/VerifyTests/Verify.Http)
+- [Scrubbing and filtering](https://github.com/VerifyTests/Verify/blob/main/docs/scrubbers.md)
+- [Custom converters](https://github.com/VerifyTests/Verify/blob/main/docs/converters.md)
+- [DiffEngine (diff tool integration)](https://github.com/VerifyTests/DiffEngine)
+- [ApiApprover](https://github.com/JakeGinnivan/ApiApprover)

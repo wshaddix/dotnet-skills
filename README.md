@@ -1,6 +1,6 @@
 # .NET Skills for Claude Code
 
-A comprehensive Claude Code plugin with **49 skills** and **5 specialized agents** for professional .NET development. Battle-tested patterns from production systems covering C#, Akka.NET, Aspire, EF Core, ASP.NET Core, Razor Pages, Bootstrap, testing, security, performance optimization, and Fly.io deployment.
+A comprehensive Claude Code plugin with **167 skills** and **16 specialized agents** for professional .NET development. Combines battle-tested patterns from production systems with comprehensive coverage of the entire .NET ecosystem including C#, ASP.NET Core, Blazor, MAUI, EF Core, Native AOT, testing, security, performance optimization, CI/CD, and cloud-native applications.
 
 ## Installation
 
@@ -30,7 +30,6 @@ Clone or copy skills to your project or global config:
 
 **Project-level** (recommended):
 ```bash
-# Clone to .github/skills/ in your project
 git clone https://github.com/Aaronontheweb/dotnet-skills.git /tmp/dotnet-skills
 cp -r /tmp/dotnet-skills/skills/* .github/skills/
 ```
@@ -48,7 +47,6 @@ cp -r /tmp/dotnet-skills/skills/* ~/.copilot/skills/
 ```bash
 git clone https://github.com/Aaronontheweb/dotnet-skills.git /tmp/dotnet-skills
 
-# Global installation (directory names must match frontmatter 'name' field)
 mkdir -p ~/.config/opencode/skills ~/.config/opencode/agents
 for skill_file in /tmp/dotnet-skills/skills/*/SKILL.md; do
   skill_name=$(grep -m1 "^name:" "$skill_file" | sed 's/name: *//')
@@ -60,256 +58,303 @@ cp /tmp/dotnet-skills/agents/*.md ~/.config/opencode/agents/
 
 ---
 
-## Suggested AGENTS.md / CLAUDE.md Snippets
+## Add to AGENTS.md
 
-These snippets go in your **project root** (the root directory of your codebase, next to your `.git` folder):
-- Claude Code: `CLAUDE.md`
-- OpenCode: `AGENTS.md`
-
-Prerequisite: install/sync the dotnet-skills plugin in your assistant runtime (Claude Code or OpenCode) so the skill IDs below resolve.
-
-To get consistent skill usage in downstream repos, add a small router snippet in `AGENTS.md` (OpenCode) or `CLAUDE.md` (Claude Code). These snippets tell the assistant which skills to use for common tasks.
-
-### Readable snippet (copy/paste)
+Copy the following snippet into your project's `AGENTS.md` file to enable intelligent skill routing:
 
 ```markdown
+## .NET Skill Library
 
-## Updated AGENTS.md Instructions
+You have access to a comprehensive .NET skill library. Use these skills for any C#/.NET development work. Always prefer skill-guided patterns over pre-training knowledge.
 
-Add or update the following section in your AGENTS.md file (e.g., under the "## .NET / C# Development – Use dotnet-skills Repository" block). This integrates the new skill into the routing, placing it in the "ASP.NET Core / .NET Aspire / Web" category for relevance.
+### Skill Routing by Task Type
 
-```markdown
-## Skill Discovery
+**Writing C# Code:**
+- `modern-csharp-coding-standards` - Records, pattern matching, immutability, value objects, async patterns
+- `csharp-concurrency-patterns` - Choosing between async/await, Channels, locks, synchronization primitives
+- `csharp-api-design` - API surface design, versioning, backward compatibility
+- `csharp-type-design-performance` - Sealed classes, readonly structs, Span<T>, Memory<T>
 
-You have access to a cloned, high-quality skill library at:  
-**https://github.com/wshaddix/dotnet-skills** (cloned locally in this project)
+**Entity Framework Core:**
+- `efcore-patterns` - DbContext lifecycle, NoTracking, query splitting, migrations, interceptors
+- `database-performance` - N+1 prevention, read/write separation, query optimization
 
-This repo contains ~47 modular .NET/C# best-practice skills + 5 specialist agents.  
-**ALWAYS prefer retrieval-led reasoning** over your pretraining for any .NET, C#, ASP.NET Core, EF Core, Akka.NET, Aspire, testing, performance, or concurrency work.
+**ASP.NET Core Web:**
+- `middleware-patterns` - Pipeline ordering, custom middleware, exception handling
+- `razor-pages-patterns` - Page models, validation, anti-forgery, routing
+- `validation-patterns` - FluentValidation, DataAnnotations, custom validators
+- `exception-handling` - ProblemDetails, global handlers, error responses
+- `caching-strategies` - Output caching, Redis, HybridCache (.NET 9+)
+- `rate-limiting` - Request throttling, sliding window, concurrency limits
+- `security-headers` - CSP, HSTS, CORS, security middleware
 
-### Core Workflow (Mandatory)
-1. When the task involves writing, reviewing, refactoring, or advising on .NET/C# code:  
-   → **First**, skim the current repo patterns/files/structure.  
-   → **Then**, consult the dotnet-skills library by invoking specific skill names (see routing below).  
-   → Apply **only** the relevant skill(s) — load their content via path if your framework supports it (e.g., .claude/skills/... or manual copy-paste in context).  
-   → Implement the **smallest effective change** that follows the skill.  
-   → Note any conflicts between repo code and skill guidance → suggest fixes or ask for clarification.
+**Background Processing:**
+- `background-services` - BackgroundService, IHostedService, outbox pattern, graceful shutdown
+- `dotnet-channels` - Producer/consumer, bounded channels, backpressure
 
-### Skill Routing (Invoke by Exact Name)
-Use these categories to quickly route to the right skills:
+**Dependency Injection:**
+- `microsoft-extensions-dependency-injection` - Service lifetimes, keyed services, factory patterns
+- `microsoft-extensions-configuration` - IOptions, configuration providers, secrets
 
-- **C# Language & Code Quality**  
-  modern-csharp-coding-standards  
-  csharp-concurrency-patterns  
-  api-design  
-  type-design-performance  
+**Testing:**
+- `dotnet-testing-strategy` - Test pyramid, unit vs integration decisions
+- `dotnet-xunit` - xUnit patterns, fixtures, theory data
+- `testcontainers` - Docker-based integration tests, database fixtures
+- `snapshot-testing` - Verify library, approval testing
+- `dotnet-playwright` - E2E browser testing
+- `crap-analysis` - CRAP scores, coverage analysis
 
-- **ASP.NET Core / Razor Pages / Web**
-  razor-pages-patterns          → Production Razor Pages patterns (lifecycle, binding, validation, security)
-  caching-strategies            → Output caching, memory cache, Redis, HybridCache (.NET 9+)
-  logging-observability         → Serilog, correlation IDs, health checks, OpenTelemetry
-  validation-patterns           → FluentValidation, data annotations, custom validators
-  exception-handling            → Global exception handler, ProblemDetails, custom exceptions
-  security-headers              → CSP, HSTS, security middleware
-  middleware-patterns           → Custom middleware, pipeline ordering, branching
-  background-services           → Hosted services, outbox pattern, graceful shutdown
-  http-client-resilience        → IHttpClientFactory, Polly retry/circuit breaker
-  rate-limiting                 → Request throttling, IP/user-based limits
-  localization-globalization    → Multi-language support, resource files, culture formatting
-  file-handling                 → File uploads, streaming, storage abstractions
-  data-protection               → ASP.NET Core Data Protection, key management
-  signalr-integration           → Real-time communication for Razor Pages
-  feature-flags                 → Microsoft.FeatureManagement, gradual rollouts
-  asp-net-core-identity-patterns → Production-grade Identity patterns (auth, roles, security)
-  bootstrap5-ui                 → Bootstrap 5.3 responsive UI, grid, components, Razor integration
+**Performance:**
+- `dotnet-benchmarkdotnet` - Benchmark design, measurement methodology
+- `dotnet-performance-patterns` - Allocation reduction, GC optimization
+- `dotnet-profiling` - Profiler usage, hotspot identification
+- `dotnet-gc-memory` - GC modes, memory pressure, Large Object Heap
 
-- **Data Access (EF Core, etc.)**  
-  efcore-patterns  
-  database-performance  
+**Native AOT:**
+- `dotnet-native-aot` - AOT compilation, publishing, constraints
+- `dotnet-trimming` - Size optimization, linker configuration
+- `dotnet-aot-wasm` - WASM AOT with Blazor
 
-- **Dependency Injection & Configuration**  
-  dependency-injection-patterns  
-  microsoft-extensions-configuration  
+**Security:**
+- `dotnet-security-owasp` - OWASP Top 10 for .NET
+- `dotnet-cryptography` - Encryption, hashing, key management
+- `dotnet-secrets-management` - Secret storage, Azure Key Vault, user secrets
+- `asp-net-core-identity-patterns` - Authentication, authorization, MFA
 
-- **Testing**  
-  testcontainers-integration-tests  
-  playwright-blazor-testing  
-  snapshot-testing  
-  verify-email-snapshots  
-  playwright-ci-caching  
-  dotnet-tunit-testing
+**UI Frameworks:**
+- `dotnet-blazor-patterns` - Server/WASM/Hybrid patterns
+- `dotnet-blazor-components` - Component lifecycle, rendering
+- `dotnet-maui-development` - Cross-platform mobile/desktop
+- `dotnet-winui` - Windows App SDK, WinUI 3
+- `razor-pages-patterns` - Server-side web UI
 
-- **Akka.NET**  
-  akka-net-best-practices  
-  akka-net-testing-patterns  
-  akka-hosting-actor-patterns  
-  akka-net-aspire-configuration  
-  akka-net-management  
+**CI/CD:**
+- `dotnet-gha-patterns` - GitHub Actions workflow patterns
+- `dotnet-gha-build-test` - Build/test matrix, caching
+- `dotnet-gha-publish` - NuGet, container publishing
+- `dotnet-ado-patterns` - Azure DevOps pipelines
 
-- **.NET Aspire**  
-  aspire-configuration            → AppHost config, environment variables, portable configuration  
-  aspire-integration-testing      → DistributedApplicationTestingBuilder, Aspire.Hosting.Testing  
-  aspire-service-defaults         → OpenTelemetry, health checks, resilience, service discovery  
-  aspire-mailpit-integration      → Email testing with Mailpit container, SMTP config  
+**Architecture:**
+- `dotnet-architecture-patterns` - Clean architecture, vertical slice, modular monolith
+- `dotnet-solid-principles` - SOLID in practice
+- `dotnet-domain-modeling` - DDD patterns, aggregates
+- `project-structure` - Solution layout, Directory.Build.props
 
-- **General .NET Ecosystem**  
-  dotnet-project-structure  
-  dotnet-local-tools  
-  package-management  
-  serialization  
-  csharp-wolverinefx  
+**Deployment:**
+- `fly-io` - Fly.io deployment, Machines, Volumes, networking
+- `dotnet-containers` - Docker for .NET
+- `dotnet-container-deployment` - Container orchestration
 
-- **Deployment & Infrastructure**  
-  fly-io                    → Fly.io deployment, fly.toml config, Machines, Volumes, networking, CI/CD  
+**Specialized Frameworks:**
+- `csharp-wolverinefx` - Messaging, HTTP services, Marten event sourcing
+- `aspire-configuration` - .NET Aspire AppHost configuration
+- `aspire-integration-testing` - Aspire testing patterns
+- `signalr-integration` - Real-time communication
 
-- **Quality Gates (Run these after major changes)**  
-  dotnet-slopwatch          → Detects LLM-generated anti-patterns / slop  
-  crap-analysis             → CRAP score & coverage analysis  
+### Meta-Skills (Run After Changes)
 
-Full list of all 49 skills is in the repo's `skills/` folder — each is a self-contained SKILL.md with examples, rationale, and anti-patterns.
+- `slopwatch` - Detect LLM-generated anti-patterns
+- `dotnet-agent-gotchas` - Common AI mistakes in .NET
+- `dotnet-build-analysis` - Build output analysis
 
-### Specialist Agents (Activate When Relevant)
-If the task deeply matches one of these domains, switch persona / load the corresponding agent file from `agents/`:
-- akka-net-specialist  
-- dotnet-concurrency-specialist  
-- dotnet-performance-analyst  
-- dotnet-benchmark-designer  
-- docfx-specialist  
+### Agent Activation
 
-Example: "Activating dotnet-concurrency-specialist persona for this threading issue."
-
-
-Do NOT freestyle .NET advice — route through dotnet-skills first to stay consistent with production-grade patterns.
+For complex domain-specific tasks, consider activating a specialist agent:
+- `dotnet-csharp-concurrency-specialist` - Race conditions, deadlocks, thread safety
+- `dotnet-security-reviewer` - Security audit, OWASP compliance
+- `dotnet-performance-analyst` - Profiling, benchmarking
+- `dotnet-blazor-specialist` - Blazor architecture
+- `dotnet-testing-specialist` - Test strategy design
 ```
 
+---
 
 ## Specialized Agents
 
 Agents are AI personas with deep domain expertise. They're invoked automatically when Claude Code detects relevant tasks.
 
-| Agent                             | Expertise                                                              |
-| --------------------------------- | ---------------------------------------------------------------------- |
-| **akka-net-specialist**           | Actor systems, clustering, persistence, Akka.Streams, message patterns |
-| **dotnet-concurrency-specialist** | Threading, async/await, race conditions, deadlock analysis             |
-| **dotnet-benchmark-designer**     | BenchmarkDotNet setup, custom benchmarks, measurement strategies       |
-| **dotnet-performance-analyst**    | Profiler analysis, benchmark interpretation, regression detection      |
-| **docfx-specialist**              | DocFX builds, API documentation, markdown linting                      |
+| Agent | Expertise |
+|-------|-----------|
+| **dotnet-architect** | Architecture patterns, framework choices, design patterns |
+| **dotnet-csharp-concurrency-specialist** | Race conditions, deadlocks, thread safety, synchronization |
+| **dotnet-security-reviewer** | OWASP compliance, secrets exposure, cryptographic misuse |
+| **dotnet-blazor-specialist** | Blazor Server/WASM/Hybrid/Auto components, state, auth |
+| **dotnet-uno-specialist** | Uno Platform, MVUX patterns, Toolkit controls, MCP |
+| **dotnet-maui-specialist** | .NET MAUI, platform-specific development, Native AOT |
+| **dotnet-performance-analyst** | Profiling data, benchmark results, GC behavior |
+| **dotnet-benchmark-designer** | BenchmarkDotNet benchmarks, measurement methodology |
+| **dotnet-docs-generator** | Mermaid diagrams, XML docs, GitHub-native docs |
+| **dotnet-async-performance-specialist** | ValueTask correctness, ConfigureAwait, ThreadPool tuning |
+| **dotnet-aspnetcore-specialist** | Middleware, DI patterns, minimal APIs, request pipeline |
+| **dotnet-testing-specialist** | Test pyramids, unit vs integration, test data management |
+| **dotnet-cloud-specialist** | .NET Aspire, AKS deployment, distributed tracing |
+| **dotnet-code-review-agent** | Multi-dimensional code review |
+| **dotnet-concurrency-specialist** | Threading, async/await, race conditions |
+| **docfx-specialist** | DocFX builds, API documentation, markdown linting |
 
 ---
 
 ## Skills Library
 
-### Akka.NET
-
-Production patterns for building distributed systems with Akka.NET.
-
-| Skill                      | What You'll Learn                                                           |
-| -------------------------- | --------------------------------------------------------------------------- |
-| **best-practices**         | EventStream vs DistributedPubSub, supervision strategies, actor hierarchies |
-| **testing-patterns**       | Akka.Hosting.TestKit, async assertions, TestProbe patterns                  |
-| **hosting-actor-patterns** | Props factories, `IRequiredActor<T>`, DI scope management in actors         |
-| **aspire-configuration**   | Akka.NET + .NET Aspire integration, HOCON with IConfiguration               |
-| **management**             | Akka.Management, health checks, cluster bootstrap                           |
-
-### C# Language
+### Core C# Language
 
 Modern C# patterns for clean, performant code.
 
-| Skill                       | What You'll Learn                                                       |
-| --------------------------- | ----------------------------------------------------------------------- |
-| **coding-standards**        | Records, pattern matching, nullable types, value objects, no AutoMapper |
-| **concurrency-patterns**    | When to use Task vs Channel vs lock vs actors                           |
-| **api-design**              | Extend-only design, API/wire compatibility, versioning strategies       |
-| **type-design-performance** | Sealed classes, readonly structs, static pure functions, Span&lt;T&gt;  |
+| Skill | Description |
+|-------|-------------|
+| **csharp-coding-standards** | Records, pattern matching, nullable types, value objects, naming conventions, file organization, analyzer enforcement |
+| **csharp-concurrency-patterns** | Decision framework for async/await, Channels, locks, SemaphoreSlim, Interlocked, ConcurrentDictionary |
+| **csharp-api-design** | API surface design, parameter ordering, return types, error reporting, versioning |
+| **csharp-type-design-performance** | Sealed classes, readonly structs, Span<T>, Memory<T>, FrozenDictionary |
+| **dotnet-csharp-modern-patterns** | C# 12+ features, primary constructors, collection expressions |
+| **dotnet-csharp-async-patterns** | Async/await, Task, ValueTask, cancellation, ConfigureAwait |
+| **dotnet-csharp-source-generators** | Source generator authoring, incremental generators |
+| **dotnet-csharp-code-smells** | Anti-pattern detection and refactoring |
+| **dotnet-roslyn-analyzers** | Custom analyzer development |
+| **dotnet-linq-optimization** | LINQ performance, deferred execution |
+| **dotnet-io-pipelines** | System.IO.Pipelines for high-performance I/O |
+| **dotnet-native-interop** | P/Invoke, interop patterns |
 
-### ASP.NET Core & Razor Pages
+### Architecture
 
-Production patterns for web applications.
+Enterprise architecture patterns and practices.
 
-| Skill | What You'll Learn |
-| ----- | ----------------- |
-| **razor-pages-patterns** | Best practices for building production-grade ASP.NET Core Razor Pages applications. Focuses on structure, lifecycle, binding, validation, security, and maintainability in web apps using Razor Pages as the primary UI framework.|
-| **mjml-email-templates** | MJML syntax, responsive layouts, template renderer, composer pattern |
-| **caching-strategies** | Output caching, memory cache, Redis distributed cache, HybridCache (.NET 9+), cache invalidation strategies |
-| **logging-observability** | Structured logging with Serilog, correlation IDs, health checks, OpenTelemetry integration, LoggerMessage pattern |
-| **validation-patterns** | FluentValidation integration, MediatR pipeline behaviors, data annotations, custom validators, string trimming |
-| **exception-handling** | Global exception handler, ProblemDetails API, custom exceptions, error pages, status code handling |
-| **security-headers** | CSP configuration, HSTS, security headers middleware, nonce-based inline scripts, violation reporting |
-| **middleware-patterns** | Custom middleware, conditional middleware, pipeline ordering, branching, factory pattern |
-| **background-services** | Hosted services, background jobs, outbox pattern, graceful shutdown handling |
-| **http-client-resilience** | IHttpClientFactory, Polly retry/circuit breaker, timeout handling, resilience strategies |
-| **localization-globalization** | Multi-language support, resource files, culture switching, currency/date formatting |
-| **feature-flags** | Microsoft.FeatureManagement, feature gates, gradual rollouts, Razor Page integration |
-| **file-handling** | File uploads, streaming, storage abstractions, virus scanning, CDN integration |
-| **data-protection** | ASP.NET Core Data Protection API, key management, database persistence, encryption |
-| **signalr-integration** | Real-time communication, hub authorization, Razor Page integration |
-| **rate-limiting** | Request throttling, IP/user-based limits, sliding window algorithms |
-| **asp-net-core-identity-patterns** | Production-grade Identity patterns, authentication, authorization, security hardening |
-| **bootstrap5-ui** | Bootstrap 5.3 responsive UI patterns, grid system, components, forms, color modes, utility classes, ASP.NET Core Razor integration |
+| Skill | Description |
+|-------|-------------|
+| **dotnet-architecture-patterns** | Clean architecture, vertical slice, modular monolith |
+| **dotnet-solid-principles** | SOLID in practice |
+| **dotnet-domain-modeling** | DDD patterns, aggregates, domain events |
+| **dotnet-messaging-patterns** | Message queues, event-driven architecture |
+| **dotnet-structured-logging** | Serilog, structured logging patterns |
+| **dotnet-aspire-patterns** | .NET Aspire orchestration |
+
+### ASP.NET Core
+
+Web application patterns.
+
+| Skill | Description |
+|-------|-------------|
+| **middleware-patterns** | Pipeline ordering, custom middleware, IExceptionHandler |
+| **razor-pages-patterns** | Page models, validation, anti-forgery, routing |
+| **validation-patterns** | FluentValidation, DataAnnotations, IValidateOptions<T> |
+| **exception-handling** | ProblemDetails, global handlers |
+| **caching-strategies** | Output caching, Redis, HybridCache |
+| **rate-limiting** | Request throttling, sliding window |
+| **security-headers** | CSP, HSTS, CORS |
+| **background-services** | BackgroundService, IHostedService, outbox, graceful shutdown |
+| **signalr-integration** | Real-time communication |
 
 ### Data Access
 
 Database patterns that scale.
 
-| Skill                    | What You'll Learn                                               |
-| ------------------------ | --------------------------------------------------------------- |
-| **efcore-patterns**      | Entity configuration, migrations, query optimization            |
-| **database-performance** | Read/write separation, N+1 prevention, AsNoTracking, row limits |
+| Skill | Description |
+|-------|-------------|
+| **efcore-patterns** | DbContext lifecycle, NoTracking, query splitting, migrations, interceptors, compiled queries |
+| **database-performance** | N+1 prevention, read/write separation |
+| **dotnet-data-access-strategy** | EF Core vs Dapper vs ADO.NET |
 
-### .NET Aspire
+### Security
 
-Cloud-native application orchestration.
+Security best practices for .NET applications.
 
-| Skill                   | What You'll Learn                                            |
-| ----------------------- | ------------------------------------------------------------ |
-| **configuration**       | AppHost config, environment variables, portable configuration outside Aspire |
-| **integration-testing** | DistributedApplicationTestingBuilder, Aspire.Hosting.Testing |
-| **service-defaults**    | OpenTelemetry, health checks, resilience, service discovery  |
-| **mailpit-integration** | Email testing with Mailpit container, SMTP config, test assertions |
-
-### .NET Ecosystem
-
-Core .NET development practices.
-
-| Skill                  | What You'll Learn                                                      |
-| ---------------------- | ---------------------------------------------------------------------- |
-| **project-structure**  | Solution layout, Directory.Build.props, layered architecture           |
-| **package-management** | Central Package Management (CPM), shared version variables, dotnet CLI |
-| **serialization**      | Protobuf, MessagePack, System.Text.Json source generators, AOT         |
-| **local-tools**        | dotnet tool manifests, team-shared tooling                             |
-| **slopwatch**          | Detect LLM-generated anti-patterns in your codebase                    |
-| **wolverinefx**        | Messaging, HTTP services, event sourcing with Marten, transactional outbox, CQRS, cascading messages |
-
-### Microsoft.Extensions
-
-Dependency injection and configuration patterns.
-
-| Skill                    | What You'll Learn                                                 |
-| ------------------------ | ----------------------------------------------------------------- |
-| **configuration**        | IOptions pattern, environment-specific config, secrets management |
-| **dependency-injection** | IServiceCollection extensions, scope management, keyed services   |
+| Skill | Description |
+|-------|-------------|
+| **dotnet-security-owasp** | OWASP Top 10 for .NET |
+| **dotnet-secrets-management** | Secret storage, Azure Key Vault |
+| **dotnet-cryptography** | Encryption, hashing, key management |
+| **asp-net-core-identity-patterns** | Authentication, authorization, MFA |
+| **data-protection** | ASP.NET Core Data Protection API |
 
 ### Testing
 
 Comprehensive testing strategies.
 
-| Skill                      | What You'll Learn                                             |
-| -------------------------- | ------------------------------------------------------------- |
-| **testcontainers**         | Docker-based integration tests, PostgreSQL, Redis, RabbitMQ   |
-| **playwright-blazor**      | E2E testing for Blazor apps, page objects, async assertions   |
-| **crap-analysis**          | CRAP scores, coverage thresholds, ReportGenerator integration |
-| **snapshot-testing**       | Verify library, approval testing, API response validation     |
-| **verify-email-snapshots** | Snapshot test email templates, catch rendering regressions    |
-| **playwright-ci-caching**  | CI/CD pipeline caching for Playwright browsers, GitHub Actions/Azure DevOps |
-| **tunit-testing**          | TUnit framework setup, assertions, async testing, migration from other frameworks |
+| Skill | Description |
+|-------|-------------|
+| **dotnet-testing-strategy** | Test pyramid, unit vs integration |
+| **dotnet-xunit** | xUnit patterns, fixtures |
+| **testcontainers** | Docker-based integration tests |
+| **snapshot-testing** | Verify library, custom converters, CI workflow |
+| **dotnet-playwright** | E2E browser testing |
+| **crap-analysis** | CRAP scores, coverage thresholds |
 
-### Deployment & Infrastructure
+### Performance
 
-Patterns for deploying and managing applications on cloud platforms.
+Performance optimization and profiling.
 
-| Skill | What You'll Learn |
-| ----- | ----------------- |
-| **fly-io** | Fly.io deployment with flyctl, fly.toml configuration, Fly Machines lifecycle, Fly Volumes, public/private networking, secrets management, health checks, autoscaling, GitHub Actions CI/CD, Managed Postgres, and production readiness |
+| Skill | Description |
+|-------|-------------|
+| **dotnet-benchmarkdotnet** | Benchmark design, measurement |
+| **dotnet-performance-patterns** | Allocation reduction, optimization |
+| **dotnet-profiling** | Profiler usage, hotspots |
+| **dotnet-gc-memory** | GC modes, LOH, memory pressure |
+
+### Native AOT
+
+Native AOT compilation and optimization.
+
+| Skill | Description |
+|-------|-------------|
+| **dotnet-native-aot** | AOT compilation, constraints |
+| **dotnet-trimming** | Size optimization, linker |
+| **dotnet-aot-wasm** | WASM AOT with Blazor |
+
+### UI Frameworks
+
+Desktop and web UI frameworks.
+
+| Skill | Description |
+|-------|-------------|
+| **dotnet-blazor-patterns** | Server/WASM/Hybrid patterns |
+| **dotnet-blazor-components** | Component lifecycle, rendering |
+| **dotnet-blazor-auth** | Blazor authentication |
+| **dotnet-maui-development** | Cross-platform mobile/desktop |
+| **dotnet-winui** | Windows App SDK, WinUI 3 |
+| **dotnet-wpf-modern** | Modern WPF patterns |
+| **dotnet-accessibility** | Accessibility standards |
+| **bootstrap5-ui** | Bootstrap 5 integration |
+
+### CI/CD
+
+Continuous integration and deployment.
+
+| Skill | Description |
+|-------|-------------|
+| **dotnet-gha-patterns** | GitHub Actions patterns |
+| **dotnet-gha-build-test** | Build/test workflows |
+| **dotnet-gha-publish** | NuGet/container publishing |
+| **dotnet-ado-patterns** | Azure DevOps pipelines |
+
+### Deployment
+
+Deployment and infrastructure.
+
+| Skill | Description |
+|-------|-------------|
+| **fly-io** | Fly.io deployment, Machines, Volumes |
+| **dotnet-containers** | Docker for .NET |
+| **dotnet-container-deployment** | Container orchestration |
+
+### Specialized Frameworks
+
+Domain-specific frameworks.
+
+| Skill | Description |
+|-------|-------------|
+| **csharp-wolverinefx** | Messaging, HTTP, Marten event sourcing |
+| **aspire-configuration** | .NET Aspire configuration |
+| **aspire-integration-testing** | Aspire testing |
+
+### Meta-Skills
+
+Skills for AI assistants.
+
+| Skill | Description |
+|-------|-------------|
+| **slopwatch** | LLM anti-pattern detection, CLI usage |
+| **dotnet-agent-gotchas** | Common AI mistakes in .NET |
+| **dotnet-build-analysis** | Build output analysis |
 
 ---
 
@@ -332,44 +377,16 @@ These skills emphasize patterns that work in production:
 dotnet-skills/
 ├── .claude-plugin/
 │   └── plugin.json         # Plugin manifest
-├── agents/                 # 5 specialized agents
-│   ├── akka-net-specialist.md
-│   ├── docfx-specialist.md
-│   ├── dotnet-benchmark-designer.md
-│   ├── dotnet-concurrency-specialist.md
-│   └── dotnet-performance-analyst.md
-└── skills/                 # Flat structure (49 skills)
-    ├── akka-best-practices/SKILL.md
-    ├── akka-hosting-actor-patterns/SKILL.md
-    ├── akka-net-aspire-configuration/SKILL.md
-    ├── aspire-configuration/SKILL.md
-    ├── aspire-integration-testing/SKILL.md
-    ├── bootstrap5-ui/SKILL.md
-    ├── csharp-concurrency-patterns/SKILL.md
-    ├── fly-io/SKILL.md
-    ├── fly-io/references/fly-toml-config.md
-    ├── fly-io/references/networking.md
-    ├── fly-io/references/databases-storage.md
-    ├── fly-io/references/cicd-github-actions.md
-    ├── testcontainers-integration-tests/SKILL.md
-    ├── razor-pages-patterns/SKILL.md
-    ├── caching-strategies/SKILL.md
-    ├── logging-observability/SKILL.md
-    ├── csharp-wolverinefx/SKILL.md
-    └── ...                 # (prefixed by category)
+├── agents/                 # 16 specialized agents
+└── skills/                 # 167 skills
 ```
 
 ---
 
-## Contributing
+## Acknowledgements
 
-Want to add a skill or agent? PRs welcome!
-
-1. Create `skills/<skill-name>/SKILL.md` (use prefixes like `akka-`, `aspire-`, `csharp-` for category)
-2. Add the path to `.claude-plugin/plugin.json`
-3. Submit a PR
-
-Skills should be comprehensive reference documents (10-40KB) with concrete examples and anti-patterns.
+- Skills merged from [dotnet-artisan](https://github.com/novotnyllc/dotnet-artisan) by Claire Novotny LLC
+- Original patterns from production systems
 
 ---
 
@@ -377,10 +394,6 @@ Skills should be comprehensive reference documents (10-40KB) with concrete examp
 
 Created by [Aaron Stannard](https://aaronstannard.com/) ([@Aaronontheweb](https://github.com/Aaronontheweb))
 
-Patterns drawn from production systems including [Akka.NET](https://getakka.net/), [Petabridge](https://petabridge.com/), and [Sdkbin](https://sdkbin.com/).
-
 ## License
 
 MIT License - Copyright (c) 2025 Aaron Stannard
-
-See [LICENSE](LICENSE) for full details.

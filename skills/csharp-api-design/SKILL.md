@@ -1,6 +1,6 @@
 ---
 name: api-design
-description: Design stable, compatible public APIs using extend-only design principles. Manage API compatibility, wire compatibility, and versioning for NuGet packages and distributed systems. Use when designing public APIs for NuGet packages or libraries, making changes to existing public APIs, planning wire format changes for distributed systems, or reviewing pull requests for breaking changes.
+description: Design stable, compatible public APIs using extend-only design principles. Manage API compatibility, wire compatibility, versioning, naming conventions, parameter ordering, and return types for NuGet packages and distributed systems. Use when designing public APIs for NuGet packages or libraries, making changes to existing public APIs, planning wire format changes for distributed systems, or reviewing pull requests for breaking changes.
 ---
 
 # Public API Design and Compatibility
@@ -45,9 +45,165 @@ The foundation of stable APIs: **never remove or modify, only extend**.
 - Upgrades are non-breaking by default
 - Users upgrade on their schedule
 
-**Resources:**
-- [Extend-Only Design](https://aaronstannard.com/extend-only-design/)
-- [OSS Compatibility Standards](https://aaronstannard.com/oss-compatibility-standards/)
+---
+
+## Naming Conventions for API Surface
+
+### Type Naming
+
+| Type Kind | Suffix Pattern | Example |
+|-----------|---------------|---------|
+| Base class | `Base` suffix only for abstract base types | `ValidatorBase` |
+| Interface | `I` prefix | `IWidgetFactory` |
+| Exception | `Exception` suffix | `WidgetNotFoundException` |
+| Attribute | `Attribute` suffix | `RequiredPermissionAttribute` |
+| Event args | `EventArgs` suffix | `WidgetCreatedEventArgs` |
+| Options/config | `Options` suffix | `WidgetServiceOptions` |
+| Builder | `Builder` suffix | `WidgetBuilder` |
+
+### Method Naming
+
+| Pattern | Convention | Example |
+|---------|-----------|---------|
+| Synchronous | Verb or verb phrase | `Calculate()`, `GetWidget()` |
+| Asynchronous | `Async` suffix | `CalculateAsync()`, `GetWidgetAsync()` |
+| Boolean query | `Is`/`Has`/`Can` prefix | `IsValid()`, `HasPermission()` |
+| Try pattern | `Try` prefix, `out` parameter | `TryGetWidget(int id, out Widget widget)` |
+| Factory | `Create` prefix | `CreateWidget()`, `CreateWidgetAsync()` |
+| Conversion | `To`/`From` prefix | `ToDto()`, `FromEntity()` |
+
+### Avoid Abbreviations in Public API
+
+```csharp
+// WRONG -- abbreviations in public surface
+public IReadOnlyList<TxnResult> GetRecentTxns(int cnt);
+
+// CORRECT -- spelled out for clarity
+public IReadOnlyList<TransactionResult> GetRecentTransactions(int count);
+```
+
+---
+
+## Parameter Ordering
+
+Consistent parameter ordering reduces cognitive load.
+
+### Standard Order
+
+1. **Target/subject** -- the primary entity being operated on
+2. **Required parameters** -- essential inputs without defaults
+3. **Optional parameters** -- inputs with sensible defaults
+4. **Cancellation token** -- always last (convention enforced by CA1068)
+
+```csharp
+public Task<Widget> GetWidgetAsync(
+    int widgetId,                              // 1. Target
+    WidgetOptions options,                     // 2. Required
+    bool includeHistory = false,               // 3. Optional
+    CancellationToken cancellationToken = default); // 4. Always last
+```
+
+### Overload Progression
+
+```csharp
+// Simple -- sensible defaults
+public Task<Widget> GetWidgetAsync(int widgetId,
+    CancellationToken cancellationToken = default)
+    => GetWidgetAsync(widgetId, WidgetOptions.Default, cancellationToken);
+
+// Detailed -- full control
+public Task<Widget> GetWidgetAsync(int widgetId,
+    WidgetOptions options,
+    CancellationToken cancellationToken = default);
+```
+
+---
+
+## Return Type Selection
+
+### When to Return What
+
+| Scenario | Return Type | Rationale |
+|----------|------------|-----------|
+| Single entity, always exists | `Widget` | Throw if not found |
+| Single entity, may not exist | `Widget?` | Nullable communicates optionality |
+| Collection, possibly empty | `IReadOnlyList<Widget>` | Immutable, indexable, communicates no mutation |
+| Streaming results | `IAsyncEnumerable<Widget>` | Avoids buffering entire result set |
+| Operation result with detail | `Result<Widget>` / discriminated union | Rich error info without exceptions |
+| Void with async | `Task` | Never `async void` except event handlers |
+| Frequently synchronous completion | `ValueTask<Widget>` | Avoids Task allocation on cache hits |
+
+### Prefer IReadOnlyList Over IEnumerable
+
+```csharp
+// WRONG -- caller does not know if result is materialized or lazy
+public IEnumerable<Widget> GetWidgets();
+
+// CORRECT -- signals materialized, indexable collection
+public IReadOnlyList<Widget> GetWidgets();
+
+// CORRECT -- signals streaming/lazy evaluation explicitly
+public IAsyncEnumerable<Widget> GetWidgetsStreamAsync(
+    CancellationToken cancellationToken = default);
+```
+
+### The Try Pattern
+
+```csharp
+public bool TryGetWidget(int widgetId, [NotNullWhen(true)] out Widget? widget);
+
+public Task<Widget?> TryGetWidgetAsync(int widgetId,
+    CancellationToken cancellationToken = default);
+```
+
+---
+
+## Error Reporting Strategies
+
+### Exception Hierarchy
+
+```csharp
+public class WidgetServiceException : Exception
+{
+    public WidgetServiceException(string message) : base(message) { }
+    public WidgetServiceException(string message, Exception inner) : base(message, inner) { }
+}
+
+public class WidgetNotFoundException : WidgetServiceException
+{
+    public int WidgetId { get; }
+    public WidgetNotFoundException(int widgetId)
+        : base($"Widget {widgetId} not found.") => WidgetId = widgetId;
+}
+
+public class WidgetValidationException : WidgetServiceException
+{
+    public IReadOnlyList<string> Errors { get; }
+    public WidgetValidationException(IReadOnlyList<string> errors)
+        : base("Widget validation failed.") => Errors = errors;
+}
+```
+
+### When to Use Exceptions vs Return Values
+
+| Approach | When to Use |
+|----------|------------|
+| Throw exception | Unexpected failures, programming errors, infrastructure failures |
+| Return `null` / `default` | "Not found" is a normal, expected outcome |
+| Try pattern (`bool` + `out`) | Parsing or validation where failure is common and synchronous |
+| Result object | Multiple failure modes that callers need to distinguish |
+
+### Argument Validation
+
+```csharp
+public Widget CreateWidget(string name, decimal price)
+{
+    ArgumentException.ThrowIfNullOrWhiteSpace(name);
+    ArgumentOutOfRangeException.ThrowIfNegativeOrZero(price);
+
+    return new Widget(name, price);
+}
+```
 
 ---
 
@@ -95,61 +251,44 @@ public void Process(Order order, ILogger logger);  // Breaks callers!
 ### Deprecation Pattern
 
 ```csharp
-// Step 1: Mark as obsolete with version (any release)
+// Step 1: Mark as obsolete with version
 [Obsolete("Obsolete since v1.5.0. Use ProcessAsync instead.")]
 public void Process(Order order) { }
 
-// Step 2: Add new recommended API (same release)
+// Step 2: Add new recommended API
 public Task ProcessAsync(Order order, CancellationToken ct = default);
 
-// Step 3: Remove in next major version (v2.0+)
-// Only after users have had time to migrate
+// Step 3: Remove in next major version
 ```
 
 ---
 
-## API Approval Testing
+## Extension Points
 
-Prevent accidental breaking changes with automated API surface testing.
-
-### Using ApiApprover + Verify
-
-```bash
-dotnet add package PublicApiGenerator
-dotnet add package Verify.Xunit
-```
+### Interface-Based Extension
 
 ```csharp
-[Fact]
-public Task ApprovePublicApi()
+// GOOD -- interface-based extension point
+public interface IWidgetValidator
 {
-    var api = typeof(MyLibrary.PublicClass).Assembly.GeneratePublicApi();
-    return Verify(api);
+    ValueTask<bool> ValidateAsync(Widget widget, CancellationToken ct = default);
+}
+
+// GOOD -- delegate-based extension for simple hooks
+public class WidgetServiceOptions
+{
+    public Func<Widget, CancellationToken, ValueTask>? OnWidgetCreated { get; set; }
 }
 ```
 
-Creates `ApprovePublicApi.verified.txt`:
+### Extension Method Guidelines
 
-```csharp
-namespace MyLibrary
-{
-    public class OrderProcessor
-    {
-        public OrderProcessor() { }
-        public void Process(Order order) { }
-        public Task ProcessAsync(Order order, CancellationToken ct = default) { }
-    }
-}
-```
-
-**Any API change fails the test** - reviewer must explicitly approve changes.
-
-### PR Review Process
-
-1. PR includes changes to `*.verified.txt` files
-2. Reviewers see exact API surface changes in diff
-3. Breaking changes are immediately visible
-4. Conscious decision required to approve
+| Guideline | Rationale |
+|-----------|-----------|
+| Place extensions in the same namespace as the type | Discoverable without extra `using` statements |
+| Never put extensions in `System` or `System.Linq` | Namespace pollution |
+| Prefer instance methods over extensions when you own the type | Extensions are a last resort |
+| Keep the `this` parameter as the most specific usable type | Avoids polluting IntelliSense |
 
 ---
 
@@ -161,112 +300,97 @@ For distributed systems, serialized data must be readable across versions.
 
 | Direction | Requirement |
 |-----------|-------------|
-| **Backward** | Old writers → New readers (current version reads old data) |
-| **Forward** | New writers → Old readers (old version reads new data) |
+| **Backward** | Old writers → New readers |
+| **Forward** | New writers → Old readers |
 
 Both are required for zero-downtime rolling upgrades.
 
 ### Safely Evolving Wire Formats
 
-**Phase 1: Add read-side support (opt-in)**
+**Phase 1: Add read-side support**
 
 ```csharp
-// New message type - readers deployed first
 public sealed record HeartbeatV2(
     Address From,
     long SequenceNr,
     long CreationTimeMs);  // NEW field
 
-// Deserializer handles both old and new
 public object Deserialize(byte[] data, string manifest) => manifest switch
 {
-    "Heartbeat" => DeserializeHeartbeatV1(data),   // Old format
-    "HeartbeatV2" => DeserializeHeartbeatV2(data), // New format
+    "Heartbeat" => DeserializeHeartbeatV1(data),
+    "HeartbeatV2" => DeserializeHeartbeatV2(data),
     _ => throw new NotSupportedException()
 };
 ```
 
-**Phase 2: Enable write-side (opt-out, next minor version)**
+**Phase 2: Enable write-side (next minor version)**
 
 ```csharp
-// Config to enable new format (off by default initially)
 akka.cluster.use-heartbeat-v2 = on
 ```
 
-**Phase 3: Make default (future version)**
+### Defensive Serialization Design
 
-After install base has absorbed read-side code.
+```csharp
+public sealed class WidgetDto
+{
+    [JsonPropertyName("id")]
+    public int Id { get; init; }
 
-### Schema-Based Serialization
+    [JsonPropertyName("name")]
+    public required string Name { get; init; }
 
-Prefer schema-based formats over reflection-based:
+    [JsonPropertyName("category")]
+    public string? Category { get; init; }
 
-| Format | Type | Wire Compatibility |
-|--------|------|-------------------|
-| **Protocol Buffers** | Schema-based | Excellent - explicit field numbers |
-| **MessagePack** | Schema-based | Good - with contracts |
-| **System.Text.Json** | Schema-based (with source gen) | Good - explicit properties |
-| Newtonsoft.Json | Reflection-based | Poor - type names in payload |
-| BinaryFormatter | Reflection-based | Terrible - never use |
+    [JsonPropertyName("priority")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int Priority { get; init; }
+}
+```
 
-See `dotnet/serialization` skill for details.
+### Enum Serialization Strategy
+
+```csharp
+// GOOD -- string serialization is rename-safe
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum WidgetStatus
+{
+    Draft,
+    Active,
+    Archived
+}
+
+// RISKY -- integer serialization breaks when members are reordered
+public enum WidgetPriority
+{
+    Low = 0,
+    Medium = 1,
+    High = 2
+}
+```
 
 ---
 
-## Encapsulation Patterns
+## API Approval Testing
 
-### Internal APIs
-
-Mark non-public APIs explicitly:
+Prevent accidental breaking changes with automated API surface testing.
 
 ```csharp
-// Attribute for documentation
-[InternalApi]
-public class ActorSystemImpl { }
-
-// Namespace convention
-namespace MyLibrary.Internal
+[Fact]
+public Task ApprovePublicApi()
 {
-    public class InternalHelper { }  // Public for extensibility, not for users
+    var api = typeof(MyLibrary.PublicClass).Assembly.GeneratePublicApi();
+    return Verify(api);
 }
 ```
 
-Document clearly:
+### PR Review Process
 
-> Types in `.Internal` namespaces or marked with `[InternalApi]` may change between any releases without notice.
-
-### Sealing Classes
-
-```csharp
-// DO: Seal classes not designed for inheritance
-public sealed class OrderProcessor { }
-
-// DON'T: Leave unsealed by accident
-public class OrderProcessor { }  // Users might inherit, blocking changes
-```
-
-### Interface Segregation
-
-```csharp
-// DO: Small, focused interfaces
-public interface IOrderReader
-{
-    Order? GetById(OrderId id);
-}
-
-public interface IOrderWriter
-{
-    Task SaveAsync(Order order);
-}
-
-// DON'T: Monolithic interfaces (can't add methods without breaking)
-public interface IOrderRepository
-{
-    Order? GetById(OrderId id);
-    Task SaveAsync(Order order);
-    // Adding new methods breaks all implementations!
-}
-```
+1. PR includes changes to `*.verified.txt` files
+2. Reviewers see exact API surface changes in diff
+3. Breaking changes are immediately visible
+4. Conscious decision required to approve
 
 ---
 
@@ -282,26 +406,14 @@ public interface IOrderRepository
 
 ### Key Principles
 
-1. **No surprise breaks** - Even major versions should be announced and planned
+1. **No surprise breaks** - Even major versions should be announced
 2. **Extensions anytime** - New APIs can ship in any release
 3. **Deprecate before remove** - `[Obsolete]` for at least one minor version
 4. **Communicate timelines** - Users need to plan upgrades
 
-### Chesterton's Fence
-
-> Before removing or changing something, understand why it exists.
-
-Assume every public API is used by someone. If you want to change it:
-1. Socialize the proposal on GitHub
-2. Document migration path
-3. Provide deprecation period
-4. Ship in planned release
-
 ---
 
 ## Pull Request Checklist
-
-When reviewing PRs that touch public APIs:
 
 - [ ] **No removed public members** (use `[Obsolete]` instead)
 - [ ] **No changed signatures** (add overloads instead)
@@ -320,7 +432,6 @@ When reviewing PRs that touch public APIs:
 // "Bug fix" that breaks users
 public async Task<Order> GetOrderAsync(OrderId id)  // Was sync!
 {
-    // "Fixed" to be async - but breaks all callers
 }
 
 // Correct: Add new method, deprecate old
@@ -333,13 +444,13 @@ public async Task<Order> GetOrderAsync(OrderId id) { }
 ### Silent Behavior Changes
 
 ```csharp
-// Changing defaults breaks users who relied on old behavior
+// Changing defaults breaks users
 public void Configure(bool enableCaching = true)  // Was: false!
 
 // Correct: New parameter with new name
 public void Configure(
-    bool enableCaching = false,  // Original default preserved
-    bool enableNewCaching = true)  // New behavior opt-in
+    bool enableCaching = false,
+    bool enableNewCaching = true)
 ```
 
 ### Polymorphic Serialization
@@ -348,11 +459,22 @@ public void Configure(
 // AVOID: Type names in wire format
 { "$type": "MyApp.Order, MyApp", "Id": 123 }
 
-// Renaming Order class = wire break!
-
 // PREFER: Explicit discriminators
 { "type": "order", "id": 123 }
 ```
+
+---
+
+## Agent Gotchas
+
+1. **Do not use abbreviations in public API names** -- spell out words.
+2. **Do not place CancellationToken before optional parameters** -- CA1068 enforces last.
+3. **Do not return mutable collections from public APIs** -- return `IReadOnlyList<T>`.
+4. **Do not change serialized property names without `[JsonPropertyName]` annotations**.
+5. **Do not add required parameters to existing public methods** -- add overload or use defaults.
+6. **Do not use `async void` in API surface** -- return `Task` or `ValueTask`.
+7. **Do not design exception hierarchies without a base library exception**.
+8. **Do not put extension methods in the `System` namespace**.
 
 ---
 
@@ -364,3 +486,5 @@ public void Configure(
 - [OSS Compatibility Standards](https://aaronstannard.com/oss-compatibility-standards/)
 - [Semantic Versioning](https://semver.org/)
 - [PublicApiGenerator](https://github.com/PublicApiGenerator/PublicApiGenerator)
+- [Framework Design Guidelines](https://learn.microsoft.com/dotnet/standard/design-guidelines/)
+- [Breaking changes reference](https://learn.microsoft.com/dotnet/core/compatibility/categories)

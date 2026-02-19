@@ -1,6 +1,6 @@
 ---
 name: efcore-patterns
-description: Entity Framework Core best practices including NoTracking by default, query splitting for navigation collections, migration management, dedicated migration services, and common pitfalls to avoid. Use when setting up EF Core in a new project, optimizing query performance, managing database migrations, integrating EF Core with .NET Aspire, or debugging change tracking issues.
+description: Entity Framework Core best practices including NoTracking by default, query splitting for navigation collections, migration management, dedicated migration services, interceptors, compiled queries, and connection resiliency. Use when setting up EF Core in a new project, optimizing query performance, managing database migrations, integrating EF Core with .NET Aspire, or debugging change tracking issues.
 ---
 
 # Entity Framework Core Patterns
@@ -25,9 +25,68 @@ Use this skill when:
 
 ---
 
+## DbContext Lifecycle
+
+`DbContext` is a unit of work and should be short-lived. In ASP.NET Core, register it as scoped (one per request):
+
+```csharp
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+```
+
+### Lifetime Rules
+
+| Scenario | Lifetime | Registration |
+|----------|----------|-------------|
+| Web API / MVC request | Scoped (default) | `AddDbContext<T>()` |
+| Background service | Scoped via factory | `AddDbContextFactory<T>()` |
+| Blazor Server | Scoped via factory | `AddDbContextFactory<T>()` |
+| Console app | Transient or manual | `new AppDbContext(options)` |
+
+### DbContextFactory for Long-Lived Services
+
+Background services and Blazor Server circuits outlive a single scope. Use `IDbContextFactory<T>`:
+
+```csharp
+public sealed class OrderProcessor(IDbContextFactory<AppDbContext> contextFactory)
+{
+    public async Task ProcessBatchAsync(CancellationToken ct)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(ct);
+
+        var pending = await db.Orders
+            .Where(o => o.Status == OrderStatus.Pending)
+            .ToListAsync(ct);
+
+        foreach (var order in pending)
+        {
+            order.Status = OrderStatus.Processing;
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+}
+
+builder.Services.AddDbContextFactory<AppDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+```
+
+### Pooling
+
+`AddDbContextPool<T>()` reuses `DbContext` instances to reduce allocation overhead:
+
+```csharp
+builder.Services.AddDbContextPool<AppDbContext>(options =>
+    options.UseNpgsql(connectionString), poolSize: 128);
+```
+
+**Pooling constraints:** Do not store per-request state on the `DbContext` subclass. Do not inject scoped services into the constructor.
+
+---
+
 ## Pattern 1: NoTracking by Default
 
-Configure your DbContext to disable change tracking by default. This improves performance for read-heavy workloads.
+Configure your DbContext to disable change tracking by default:
 
 ```csharp
 public class ApplicationDbContext : DbContext
@@ -35,8 +94,6 @@ public class ApplicationDbContext : DbContext
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
         : base(options)
     {
-        // Disable change tracking by default for better performance on read-only queries
-        // Use .AsTracking() explicitly for queries that need to track changes
         ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
     }
 
@@ -49,7 +106,6 @@ public class ApplicationDbContext : DbContext
 
 **Read-only queries work normally:**
 ```csharp
-// ✅ Fast read - no tracking overhead
 var orders = await dbContext.Orders
     .Where(o => o.Status == OrderStatus.Pending)
     .ToListAsync();
@@ -57,23 +113,23 @@ var orders = await dbContext.Orders
 
 **Writes require explicit handling:**
 ```csharp
-// ❌ WRONG - Entity not tracked, SaveChanges does nothing
+// WRONG - Entity not tracked, SaveChanges does nothing
 var order = await dbContext.Orders.FirstOrDefaultAsync(o => o.Id == orderId);
 order.Status = OrderStatus.Shipped;
 await dbContext.SaveChangesAsync(); // Nothing happens!
 
-// ✅ CORRECT - Explicitly mark entity for update
+// CORRECT - Explicitly mark entity for update
 var order = await dbContext.Orders.FirstOrDefaultAsync(o => o.Id == orderId);
 order.Status = OrderStatus.Shipped;
-dbContext.Orders.Update(order); // Marks entire entity as modified
+dbContext.Orders.Update(order);
 await dbContext.SaveChangesAsync();
 
-// ✅ ALSO CORRECT - Use AsTracking() for the query
+// ALSO CORRECT - Use AsTracking() for the query
 var order = await dbContext.Orders
     .AsTracking()
     .FirstOrDefaultAsync(o => o.Id == orderId);
 order.Status = OrderStatus.Shipped;
-await dbContext.SaveChangesAsync(); // Works!
+await dbContext.SaveChangesAsync();
 ```
 
 ### When to Use Tracking
@@ -86,64 +142,78 @@ await dbContext.SaveChangesAsync(); // Works!
 | Complex update with navigation | Yes | Tracking handles relationships |
 | Batch operations | No + ExecuteUpdate | More efficient |
 
-### Explicit Add/Update Pattern
+### Per-Query NoTracking
 
 ```csharp
-public class OrderService
-{
-    private readonly ApplicationDbContext _db;
+var orders = await db.Orders
+    .AsNoTracking()
+    .Where(o => o.CustomerId == customerId)
+    .ToListAsync(ct);
 
-    // CREATE - Always use Add (works regardless of tracking)
-    public async Task<Order> CreateOrderAsync(Order order)
-    {
-        _db.Orders.Add(order);
-        await _db.SaveChangesAsync();
-        return order;
-    }
-
-    // UPDATE - Explicitly mark as modified
-    public async Task UpdateOrderStatusAsync(Guid orderId, OrderStatus newStatus)
-    {
-        var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == orderId)
-            ?? throw new NotFoundException($"Order {orderId} not found");
-
-        order.Status = newStatus;
-        order.UpdatedAt = DateTimeOffset.UtcNow;
-
-        // Explicitly mark as modified since DbContext uses NoTracking by default
-        _db.Orders.Update(order);
-        await _db.SaveChangesAsync();
-    }
-
-    // DELETE - Attach and remove
-    public async Task DeleteOrderAsync(Guid orderId)
-    {
-        var order = new Order { Id = orderId };
-        _db.Orders.Remove(order);
-        await _db.SaveChangesAsync();
-    }
-}
+var ordersWithItems = await db.Orders
+    .AsNoTrackingWithIdentityResolution()
+    .Include(o => o.Items)
+    .Where(o => o.Status == OrderStatus.Active)
+    .ToListAsync(ct);
 ```
 
 ---
 
-## Pattern 2: Never Edit Migrations Manually
+## Pattern 2: Query Splitting to Prevent Cartesian Explosion
 
-**CRITICAL:** Always use EF Core CLI commands to manage migrations. Never:
-- Manually edit migration files (except for custom SQL in `Up()`/`Down()`)
-- Delete migration files directly
-- Rename migration files
-- Copy migrations between projects
+When loading multiple navigation collections via `Include()`, EF Core generates a single query that can cause cartesian explosion.
+
+### The Problem
+
+```csharp
+// Single query: produces Cartesian product of OrderItems x Payments
+var orders = await db.Orders
+    .Include(o => o.Items)      // N items
+    .Include(o => o.Payments)   // M payments
+    .ToListAsync(ct);
+// Result set: N x M rows per order
+```
+
+### The Solution
+
+```csharp
+var orders = await db.Orders
+    .Include(o => o.Items)
+    .Include(o => o.Payments)
+    .AsSplitQuery()
+    .ToListAsync(ct);
+// Executes 3 separate queries: Orders, Items, Payments
+```
+
+### Global Default
+
+```csharp
+options.UseNpgsql(connectionString, npgsql =>
+    npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery));
+```
+
+### Trade-offs
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| Single query (default) | Atomic snapshot, one round-trip | Cartesian explosion with multiple Includes |
+| Split query | No Cartesian explosion, less data transfer | Multiple round-trips, no atomicity guarantee |
+
+**Rule of thumb:** Use `AsSplitQuery()` when including two or more collection navigations.
+
+---
+
+## Pattern 3: Migration Management
+
+**CRITICAL:** Always use EF Core CLI commands to manage migrations. Never manually edit migration files (except for custom SQL in `Up()`/`Down()`).
 
 ### Creating Migrations
 
 ```bash
-# Create a new migration
 dotnet ef migrations add AddCustomerTable \
     --project src/MyApp.Infrastructure \
     --startup-project src/MyApp.Api
 
-# With a specific DbContext (if you have multiple)
 dotnet ef migrations add AddCustomerTable \
     --context ApplicationDbContext \
     --project src/MyApp.Infrastructure \
@@ -153,29 +223,22 @@ dotnet ef migrations add AddCustomerTable \
 ### Removing Migrations
 
 ```bash
-# Remove the last migration (if not yet applied)
 dotnet ef migrations remove \
     --project src/MyApp.Infrastructure \
     --startup-project src/MyApp.Api
-
-# NEVER do this:
-# rm Migrations/20240101_AddCustomerTable.cs  # ❌ BAD!
 ```
 
 ### Applying Migrations
 
 ```bash
-# Apply all pending migrations
 dotnet ef database update \
     --project src/MyApp.Infrastructure \
     --startup-project src/MyApp.Api
 
-# Apply to a specific migration
 dotnet ef database update AddCustomerTable \
     --project src/MyApp.Infrastructure \
     --startup-project src/MyApp.Api
 
-# Rollback to a previous migration
 dotnet ef database update PreviousMigrationName \
     --project src/MyApp.Infrastructure \
     --startup-project src/MyApp.Api
@@ -184,27 +247,55 @@ dotnet ef database update PreviousMigrationName \
 ### Generating SQL Scripts
 
 ```bash
-# Generate SQL script for all migrations
 dotnet ef migrations script \
     --project src/MyApp.Infrastructure \
     --startup-project src/MyApp.Api \
     --output migrations.sql
 
-# Generate idempotent script (safe to run multiple times)
 dotnet ef migrations script \
     --idempotent \
     --project src/MyApp.Infrastructure \
     --startup-project src/MyApp.Api
 ```
 
+### Migration Bundles for Production
+
+```bash
+dotnet ef migrations bundle \
+    --project src/MyApp.Infrastructure \
+    --startup-project src/MyApp.Api \
+    --output efbundle \
+    --self-contained
+
+./efbundle --connection "Host=prod-db;Database=myapp;Username=deploy;Password=..."
+```
+
+### Migration Best Practices
+
+1. **Always generate idempotent scripts** for production (`--idempotent` flag)
+2. **Never call `Database.Migrate()` at startup in production** -- use migration bundles or scripts
+3. **Keep migrations additive** -- add columns with defaults, add tables, add indexes
+4. **Review generated code** -- EF Core scaffolding can produce unexpected SQL
+5. **Use separate migration projects** -- keep migrations in infrastructure project
+
+### Data Seeding
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    modelBuilder.Entity<OrderStatus>().HasData(
+        new OrderStatus { Id = 1, Name = "Pending" },
+        new OrderStatus { Id = 2, Name = "Processing" },
+        new OrderStatus { Id = 3, Name = "Completed" },
+        new OrderStatus { Id = 4, Name = "Cancelled" });
+}
+```
+
 ---
 
-## Pattern 3: Dedicated Migration Service with Aspire
+## Pattern 4: Dedicated Migration Service with Aspire
 
-Separate migration execution from your main application using a dedicated migration service. This ensures:
-- Migrations complete before the app starts
-- Clean separation of concerns
-- Controlled seeding in test environments
+Separate migration execution from your main application.
 
 ### Project Structure
 
@@ -216,33 +307,6 @@ src/
 └── MyApp.MigrationService/  # Dedicated migration runner
 ```
 
-### MigrationService Program.cs
-
-```csharp
-using MyApp.Infrastructure.Data;
-using MyApp.MigrationService;
-using Microsoft.EntityFrameworkCore;
-
-var builder = Host.CreateApplicationBuilder(args);
-
-// Add Aspire service defaults
-builder.AddServiceDefaults();
-
-// Add PostgreSQL DbContext
-var connectionString = builder.Configuration.GetConnectionString("appdb")
-    ?? throw new InvalidOperationException("Connection string 'appdb' not found.");
-
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString, npgsqlOptions =>
-        npgsqlOptions.MigrationsAssembly("MyApp.Infrastructure")));
-
-// Add the migration worker
-builder.Services.AddHostedService<MigrationWorker>();
-
-var host = builder.Build();
-host.Run();
-```
-
 ### MigrationWorker.cs
 
 ```csharp
@@ -251,16 +315,6 @@ public class MigrationWorker : BackgroundService
     private readonly IServiceProvider _serviceProvider;
     private readonly IHostApplicationLifetime _hostApplicationLifetime;
     private readonly ILogger<MigrationWorker> _logger;
-
-    public MigrationWorker(
-        IServiceProvider serviceProvider,
-        IHostApplicationLifetime hostApplicationLifetime,
-        ILogger<MigrationWorker> logger)
-    {
-        _serviceProvider = serviceProvider;
-        _hostApplicationLifetime = hostApplicationLifetime;
-        _logger = logger;
-    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -282,14 +336,12 @@ public class MigrationWorker : BackgroundService
         }
         finally
         {
-            // Stop the application after migrations complete
             _hostApplicationLifetime.StopApplication();
         }
     }
 
     private async Task RunMigrationsAsync(ApplicationDbContext dbContext, CancellationToken ct)
     {
-        // Use execution strategy for transient failure handling
         var strategy = dbContext.Database.CreateExecutionStrategy();
 
         await strategy.ExecuteAsync(async () =>
@@ -322,20 +374,18 @@ var builder = DistributedApplication.CreateBuilder(args);
 var postgres = builder.AddPostgres("postgres");
 var db = postgres.AddDatabase("appdb");
 
-// Migrations run first, then exit
 var migrations = builder.AddProject<Projects.MyApp_MigrationService>("migrations")
     .WaitFor(db)
     .WithReference(db);
 
-// API waits for migrations to complete
 var api = builder.AddProject<Projects.MyApp_Api>("api")
-    .WaitForCompletion(migrations)  // Key: waits for migrations to finish
+    .WaitForCompletion(migrations)
     .WithReference(db);
 ```
 
 ---
 
-## Pattern 4: ExecutionStrategy for Transient Failures
+## Pattern 5: ExecutionStrategy for Transient Failures
 
 Always use `CreateExecutionStrategy()` for operations that might fail transiently:
 
@@ -358,19 +408,17 @@ public async Task UpdateWithRetryAsync(Guid id, Action<Order> update)
 }
 ```
 
-**Important:** You cannot use `CreateExecutionStrategy()` with user-initiated transactions. If you need transactions with retry:
+### With Transactions
 
 ```csharp
 var strategy = _dbContext.Database.CreateExecutionStrategy();
 
 await strategy.ExecuteAsync(async () =>
 {
-    // Transaction must be INSIDE the strategy callback
     await using var transaction = await _dbContext.Database.BeginTransactionAsync();
 
     try
     {
-        // ... your operations ...
         await _dbContext.SaveChangesAsync();
         await transaction.CommitAsync();
     }
@@ -382,14 +430,161 @@ await strategy.ExecuteAsync(async () =>
 });
 ```
 
----
-
-## Pattern 5: Bulk Operations with ExecuteUpdate/ExecuteDelete
-
-For bulk operations, use EF Core 7+ `ExecuteUpdateAsync` and `ExecuteDeleteAsync` instead of loading entities:
+### Provider-Specific Configuration
 
 ```csharp
-// ❌ SLOW - Loads all entities into memory
+// PostgreSQL
+options.UseNpgsql(connectionString, npgsql =>
+    npgsql.EnableRetryOnFailure(
+        maxRetryCount: 3,
+        maxRetryDelay: TimeSpan.FromSeconds(30),
+        errorCodesToAdd: null));
+
+// SQL Server
+options.UseSqlServer(connectionString, sqlServer =>
+    sqlServer.EnableRetryOnFailure(
+        maxRetryCount: 3,
+        maxRetryDelay: TimeSpan.FromSeconds(30),
+        errorNumbersToAdd: null));
+```
+
+---
+
+## Pattern 6: Interceptors
+
+EF Core interceptors allow cross-cutting concerns without modifying entity logic.
+
+### Audit Timestamp Interceptor
+
+```csharp
+public sealed class AuditTimestampInterceptor : SaveChangesInterceptor
+{
+    public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+        DbContextEventData eventData,
+        InterceptionResult<int> result,
+        CancellationToken ct = default)
+    {
+        if (eventData.Context is null)
+            return ValueTask.FromResult(result);
+
+        var now = DateTimeOffset.UtcNow;
+
+        foreach (var entry in eventData.Context.ChangeTracker.Entries<IAuditable>())
+        {
+            switch (entry.State)
+            {
+                case EntityState.Added:
+                    entry.Entity.CreatedAt = now;
+                    entry.Entity.UpdatedAt = now;
+                    break;
+                case EntityState.Modified:
+                    entry.Entity.UpdatedAt = now;
+                    break;
+            }
+        }
+
+        return ValueTask.FromResult(result);
+    }
+}
+
+public interface IAuditable
+{
+    DateTimeOffset CreatedAt { get; set; }
+    DateTimeOffset UpdatedAt { get; set; }
+}
+```
+
+### Soft Delete Interceptor
+
+```csharp
+public sealed class SoftDeleteInterceptor : SaveChangesInterceptor
+{
+    public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+        DbContextEventData eventData,
+        InterceptionResult<int> result,
+        CancellationToken ct = default)
+    {
+        if (eventData.Context is null)
+            return ValueTask.FromResult(result);
+
+        foreach (var entry in eventData.Context.ChangeTracker.Entries<ISoftDeletable>())
+        {
+            if (entry.State == EntityState.Deleted)
+            {
+                entry.State = EntityState.Modified;
+                entry.Entity.IsDeleted = true;
+                entry.Entity.DeletedAt = DateTimeOffset.UtcNow;
+            }
+        }
+
+        return ValueTask.FromResult(result);
+    }
+}
+
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    modelBuilder.Entity<Product>()
+        .HasQueryFilter(p => !p.IsDeleted);
+}
+```
+
+### Registration
+
+```csharp
+builder.Services.AddDbContext<AppDbContext>((sp, options) =>
+    options.UseNpgsql(connectionString)
+           .AddInterceptors(
+               sp.GetRequiredService<AuditTimestampInterceptor>(),
+               sp.GetRequiredService<SoftDeleteInterceptor>()));
+
+builder.Services.AddSingleton<AuditTimestampInterceptor>();
+builder.Services.AddSingleton<SoftDeleteInterceptor>();
+```
+
+---
+
+## Pattern 7: Compiled Queries
+
+For queries executed very frequently:
+
+```csharp
+public static class CompiledQueries
+{
+    public static readonly Func<AppDbContext, int, Task<Order?>>
+        GetOrderById = EF.CompileAsyncQuery(
+            (AppDbContext db, int orderId) =>
+                db.Orders
+                    .AsNoTracking()
+                    .Include(o => o.Items)
+                    .FirstOrDefault(o => o.Id == orderId));
+
+    public static readonly Func<AppDbContext, string, IAsyncEnumerable<Order>>
+        GetOrdersByCustomer = EF.CompileAsyncQuery(
+            (AppDbContext db, string customerId) =>
+                db.Orders
+                    .AsNoTracking()
+                    .Where(o => o.CustomerId == customerId)
+                    .OrderByDescending(o => o.CreatedAt));
+}
+
+var order = await CompiledQueries.GetOrderById(db, orderId);
+
+await foreach (var o in CompiledQueries.GetOrdersByCustomer(db, customerId)
+    .WithCancellation(ct))
+{
+}
+```
+
+**When to use:** Queries that execute thousands of times per second. For typical CRUD, standard LINQ is sufficient.
+
+---
+
+## Pattern 8: Bulk Operations
+
+Use EF Core 7+ `ExecuteUpdateAsync` and `ExecuteDeleteAsync`:
+
+```csharp
+// WRONG - Loads all entities into memory
 var expiredOrders = await _db.Orders
     .Where(o => o.ExpiresAt < DateTimeOffset.UtcNow)
     .ToListAsync();
@@ -400,14 +595,13 @@ foreach (var order in expiredOrders)
 }
 await _db.SaveChangesAsync();
 
-// ✅ FAST - Single SQL UPDATE statement
+// CORRECT - Single SQL UPDATE statement
 await _db.Orders
     .Where(o => o.ExpiresAt < DateTimeOffset.UtcNow)
     .ExecuteUpdateAsync(setters => setters
         .SetProperty(o => o.Status, OrderStatus.Expired)
         .SetProperty(o => o.UpdatedAt, DateTimeOffset.UtcNow));
 
-// ✅ FAST - Single SQL DELETE statement
 await _db.Orders
     .Where(o => o.Status == OrderStatus.Cancelled && o.CreatedAt < cutoffDate)
     .ExecuteDeleteAsync();
@@ -420,12 +614,12 @@ await _db.Orders
 ### 1. Forgetting to Update When NoTracking
 
 ```csharp
-// ❌ Silent failure - entity not tracked
+// Silent failure - entity not tracked
 var customer = await _db.Customers.FindAsync(id);
 customer.Name = "New Name";
 await _db.SaveChangesAsync(); // Does nothing!
 
-// ✅ Explicit update
+// Explicit update
 var customer = await _db.Customers.FindAsync(id);
 customer.Name = "New Name";
 _db.Customers.Update(customer);
@@ -435,165 +629,46 @@ await _db.SaveChangesAsync();
 ### 2. N+1 Query Problem
 
 ```csharp
-// ❌ N+1 queries - one query per order
+// N+1 queries - one query per order
 var customers = await _db.Customers.ToListAsync();
 foreach (var customer in customers)
 {
     var orders = customer.Orders; // Lazy load triggers query
 }
 
-// ✅ Eager loading - single query
+// Eager loading - single query
 var customers = await _db.Customers
     .Include(c => c.Orders)
     .ToListAsync();
 ```
 
-### 3. Tracking Conflicts with Multiple DbContext Instances
+### 3. Tracking Conflicts
 
 ```csharp
-// ❌ Tracking conflict - entity tracked by different context
+// Tracking conflict
 var order1 = await _db1.Orders.AsTracking().FindAsync(id);
 var order2 = await _db2.Orders.AsTracking().FindAsync(id);
 order2.Status = OrderStatus.Shipped;
-await _db2.SaveChangesAsync(); // May throw or behave unexpectedly
+await _db2.SaveChangesAsync();
 
-// ✅ Use single context or detach first
+// Use single context or detach
 _db1.Entry(order1).State = EntityState.Detached;
 ```
 
-### 4. Not Using Async Consistently
+### 4. Querying Inside Loops
 
 ```csharp
-// ❌ Blocking call in async context
-var orders = _db.Orders.ToList(); // Blocks thread
-
-// ✅ Async all the way
-var orders = await _db.Orders.ToListAsync();
-```
-
-### 5. Querying Inside Loops
-
-```csharp
-// ❌ Query per iteration
+// Query per iteration
 foreach (var orderId in orderIds)
 {
     var order = await _db.Orders.FindAsync(orderId);
-    // process order
 }
 
-// ✅ Single query
+// Single query
 var orders = await _db.Orders
     .Where(o => orderIds.Contains(o.Id))
     .ToListAsync();
 ```
-
----
-
-## DbContext Lifetime in DI
-
-### ASP.NET Core (Scoped by Default)
-
-```csharp
-// Scoped = one instance per HTTP request
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString));
-```
-
-### Background Services (Create Scope)
-
-```csharp
-public class MyBackgroundService : BackgroundService
-{
-    private readonly IServiceProvider _serviceProvider;
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        // ✅ Create scope for each unit of work
-        using var scope = _serviceProvider.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-
-        // ... use dbContext ...
-    }
-}
-```
-
-### Actors / Long-Lived Objects (Factory Pattern)
-
-```csharp
-public class OrderActor : ReceiveActor
-{
-    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
-
-    public OrderActor(IDbContextFactory<ApplicationDbContext> dbFactory)
-    {
-        _dbFactory = dbFactory;
-
-        ReceiveAsync<GetOrder>(async msg =>
-        {
-            // Create fresh context for each operation
-            await using var db = await _dbFactory.CreateDbContextAsync();
-            var order = await db.Orders.FindAsync(msg.OrderId);
-            Sender.Tell(order);
-        });
-    }
-}
-
-// Registration
-builder.Services.AddDbContextFactory<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString));
-```
-
----
-
-## Pattern 6: Query Splitting to Prevent Cartesian Explosion
-
-When you load multiple navigation collections via `Include()`, EF Core generates a single query that can cause cartesian explosion. If you have 10 orders with 10 items each, you get 100 rows instead of 10 + 10.
-
-### Global Configuration (Recommended for Most Cases)
-
-Enable query splitting globally in your DbContext configuration:
-
-```csharp
-services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString, npgsqlOptions =>
-        {
-            npgsqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
-        }));
-```
-
-### Per-Query Override
-
-Use single query when you know it's more efficient:
-
-```csharp
-// Use single query when you know the structure is well-understood
-var orders = await dbContext.Orders
-    .Include(o => o.Items)
-    .Include(o => o.Payments)
-    .AsSingleQuery()  // Override global split behavior
-    .ToListAsync();
-```
-
-### Trade-offs
-
-| Behavior | Pros | Cons |
-|-----------|-------|-------|
-| SplitQuery | No cartesian explosion, better for large collections | Multiple round-trips, potential consistency issues |
-| SingleQuery | Single round-trip, transactional consistency | Cartesian explosion with multiple collections |
-
-**Recommendation**: Default to `SplitQuery` globally, override with `AsSingleQuery()` for specific queries where single-query is known to be better.
-
-### When to Prefer SingleQuery
-
-- Small, well-understood navigation graphs (2-3 levels)
-- Queries where all related data is always needed
-- Performance-critical paths where round-trip cost is lower than cartesian explosion
-
-### When to Prefer SplitQuery
-
-- Large or unpredictable navigation graphs
-- Many-to-many relationships
-- Queries loading collections that may not all be needed
 
 ---
 
@@ -602,7 +677,6 @@ var orders = await dbContext.Orders
 ### In-Memory Provider (Unit Tests Only)
 
 ```csharp
-// Only for simple unit tests - doesn't match real database behavior
 var options = new DbContextOptionsBuilder<ApplicationDbContext>()
     .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
     .Options;
@@ -610,12 +684,9 @@ var options = new DbContextOptionsBuilder<ApplicationDbContext>()
 using var context = new ApplicationDbContext(options);
 ```
 
-### Real Database with TestContainers (Integration Tests)
-
-See the `testcontainers-integration-tests` skill for proper database testing.
+### Real Database with TestContainers
 
 ```csharp
-// Use real PostgreSQL in container
 var container = new PostgreSqlBuilder()
     .WithImage("postgres:16-alpine")
     .Build();
@@ -626,3 +697,25 @@ var options = new DbContextOptionsBuilder<ApplicationDbContext>()
     .UseNpgsql(container.GetConnectionString())
     .Options;
 ```
+
+---
+
+## Agent Gotchas
+
+1. **Do not inject `DbContext` into singleton services** -- use `IDbContextFactory<T>` instead.
+2. **Do not forget `CancellationToken` propagation** -- pass `ct` to all async EF Core methods.
+3. **Do not use `Database.EnsureCreated()` alongside migrations** -- use only in test scenarios.
+4. **Do not assume `SaveChangesAsync` is transactional across multiple calls** -- wrap in explicit transaction.
+5. **Do not hardcode connection strings** -- read from configuration.
+6. **Always pass `validateAllProperties: true`** to `Validator.TryValidateObject`.
+
+---
+
+## References
+
+- [EF Core performance best practices](https://learn.microsoft.com/en-us/ef/core/performance/)
+- [DbContext lifetime, configuration, and initialization](https://learn.microsoft.com/en-us/ef/core/dbcontext-configuration/)
+- [EF Core interceptors](https://learn.microsoft.com/en-us/ef/core/logging-events-diagnostics/interceptors)
+- [EF Core migrations overview](https://learn.microsoft.com/en-us/ef/core/managing-schemas/migrations/)
+- [EF Core compiled queries](https://learn.microsoft.com/en-us/ef/core/performance/advanced-performance-topics#compiled-queries)
+- [EF Core connection resiliency](https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency)

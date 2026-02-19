@@ -1,6 +1,6 @@
 ---
 name: slopwatch
-description: Patterns for detecting and managing code smells and technical debt in .NET applications. Use when identifying code smells in legacy code, refactoring technical debt, or establishing code quality gates in CI/CD pipelines.
+description: Patterns for detecting and managing code smells and technical debt in .NET applications. Run Slopwatch CLI to detect LLM reward hacking, disabled tests, suppressed warnings, empty catches, and other shortcuts. Use when identifying code smells, running quality gates in CI/CD, or validating LLM-generated code changes.
 ---
 
 # Slopwatch: LLM Anti-Cheat for .NET
@@ -14,6 +14,8 @@ description: Patterns for detecting and managing code smells and technical debt 
 - Test files
 
 Run slopwatch to validate the changes don't introduce "slop."
+
+---
 
 ## What is Slop?
 
@@ -46,7 +48,7 @@ Add to `.config/dotnet-tools.json`:
   "isRoot": true,
   "tools": {
     "slopwatch.cmd": {
-      "version": "0.2.0",
+      "version": "0.3.3",
       "commands": ["slopwatch"],
       "rollForward": false
     }
@@ -69,7 +71,7 @@ dotnet tool install --global Slopwatch.Cmd
 
 ## First-Time Setup: Establish a Baseline
 
-Before using slopwatch on an existing project, create a baseline of current issues:
+Before using slopwatch on an existing project, create a baseline:
 
 ```bash
 # Initialize baseline from existing code
@@ -80,58 +82,108 @@ git add .slopwatch/baseline.json
 git commit -m "Add slopwatch baseline"
 ```
 
-**Why baseline?** Legacy code may have existing issues. The baseline ensures slopwatch only catches **new** slop being introduced, not pre-existing technical debt.
+**Why baseline?** Legacy code may have existing issues. The baseline ensures slopwatch only catches **new** slop being introduced.
 
 ---
 
-## Usage During LLM Sessions
+## Usage
 
-### After Every Code Change
-
-Run slopwatch after any LLM-generated code modification:
+### Basic Analysis
 
 ```bash
-# Analyze for new issues (uses baseline)
+# Analyze current directory for slop
 slopwatch analyze
 
-# Use strict mode - fail on warnings too
+# Analyze specific directory
+slopwatch analyze -d ./src
+
+# Strict mode -- fail on warnings too
 slopwatch analyze --fail-on warning
+
+# JSON output for tooling integration
+slopwatch analyze --output json
+
+# Show performance stats
+slopwatch analyze --stats
 ```
+
+### Updating the Baseline (Rare)
+
+Only update when slop is **truly justified** and documented:
+
+```bash
+slopwatch analyze --update-baseline
+```
+
+Valid reasons: third-party library forces a pattern, intentional rate-limiting delay (not test flakiness), generated code that cannot be modified. Always add a code comment explaining the justification.
+
+---
+
+## Configuration
+
+Create `.slopwatch/slopwatch.json` to customize:
+
+```json
+{
+  "minSeverity": "warning",
+  "rules": {
+    "SW001": { "enabled": true, "severity": "error" },
+    "SW002": { "enabled": true, "severity": "warning" },
+    "SW003": { "enabled": true, "severity": "error" },
+    "SW004": { "enabled": true, "severity": "warning" },
+    "SW005": { "enabled": true, "severity": "warning" },
+    "SW006": { "enabled": true, "severity": "warning" }
+  },
+  "exclude": [
+    "**/Generated/**",
+    "**/obj/**",
+    "**/bin/**"
+  ]
+}
+```
+
+### Strict Mode (Recommended for LLM Sessions)
+
+```json
+{
+  "minSeverity": "warning",
+  "rules": {
+    "SW001": { "enabled": true, "severity": "error" },
+    "SW002": { "enabled": true, "severity": "error" },
+    "SW003": { "enabled": true, "severity": "error" },
+    "SW004": { "enabled": true, "severity": "error" },
+    "SW005": { "enabled": true, "severity": "error" },
+    "SW006": { "enabled": true, "severity": "error" }
+  }
+}
+```
+
+---
+
+## Detection Rules
+
+| Rule | Severity | What It Catches |
+|------|----------|-----------------|
+| SW001 | Error | Disabled tests (`Skip=`, `Ignore`, `#if false`) |
+| SW002 | Warning | Warning suppression (`#pragma warning disable`, `SuppressMessage`) |
+| SW003 | Error | Empty catch blocks that swallow exceptions |
+| SW004 | Warning | Arbitrary delays in tests (`Task.Delay`, `Thread.Sleep`) |
+| SW005 | Warning | Project file slop (`NoWarn`, `TreatWarningsAsErrors=false`) |
+| SW006 | Warning | CPM bypass (`VersionOverride`, inline `Version` attributes) |
 
 ### When Slopwatch Flags an Issue
 
-**Do not ignore it.** Instead:
+```
+❌ SW001 [Error]: Disabled test detected
+   File: tests/MyApp.Tests/OrderTests.cs:45
+   Pattern: [Fact(Skip="Test is flaky")]
+```
 
 1. **Understand why** the LLM took the shortcut
 2. **Request a proper fix** - be specific about what's wrong
 3. **Verify the fix** doesn't introduce different slop
 
-```
-# Example: LLM disabled a test
-❌ SW001 [Error]: Disabled test detected
-   File: tests/MyApp.Tests/OrderTests.cs:45
-   Pattern: [Fact(Skip="Test is flaky")]
-
-# Correct response: Ask for actual fix
-"This test was disabled instead of fixed. Please investigate why
-it's flaky and fix the underlying timing/race condition issue."
-```
-
-### Updating the Baseline (Rare)
-
-Only update the baseline when slop is **truly justified** and documented:
-
-```bash
-# Add current detections to baseline (use sparingly!)
-slopwatch analyze --update-baseline
-```
-
-**Justification examples:**
-- Third-party library forces a pattern (e.g., must suppress specific warning)
-- Intentional delay for rate limiting (not test flakiness)
-- Generated code that can't be modified
-
-Document why in a code comment when updating baseline.
+**Never disable tests to achieve a green build.** Fix the underlying issue.
 
 ---
 
@@ -168,8 +220,6 @@ The `--hook` flag:
 
 ## CI/CD Integration
 
-Add slopwatch to your CI pipeline as a quality gate:
-
 ### GitHub Actions
 
 ```yaml
@@ -182,7 +232,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '8.0.x'
 
       - name: Install Slopwatch
         run: dotnet tool install --global Slopwatch.Cmd
@@ -207,70 +257,12 @@ jobs:
 
 ---
 
-## Detection Rules
-
-| Rule | Severity | What It Catches |
-|------|----------|-----------------|
-| SW001 | Error | Disabled tests (`Skip=`, `Ignore`, `#if false`) |
-| SW002 | Warning | Warning suppression (`#pragma warning disable`, `SuppressMessage`) |
-| SW003 | Error | Empty catch blocks that swallow exceptions |
-| SW004 | Warning | Arbitrary delays in tests (`Task.Delay`, `Thread.Sleep`) |
-| SW005 | Warning | Project file slop (`NoWarn`, `TreatWarningsAsErrors=false`) |
-| SW006 | Warning | CPM bypass (`VersionOverride`, inline `Version` attributes) |
-
----
-
-## Configuration
-
-Create `.slopwatch/slopwatch.json` to customize:
-
-```json
-{
-  "minSeverity": "warning",
-  "rules": {
-    "SW001": { "enabled": true, "severity": "error" },
-    "SW002": { "enabled": true, "severity": "warning" },
-    "SW003": { "enabled": true, "severity": "error" },
-    "SW004": { "enabled": true, "severity": "warning" },
-    "SW005": { "enabled": true, "severity": "warning" },
-    "SW006": { "enabled": true, "severity": "warning" }
-  },
-  "exclude": [
-    "**/Generated/**",
-    "**/obj/**",
-    "**/bin/**"
-  ]
-}
-```
-
-### Strict Mode (Recommended for LLM Sessions)
-
-For maximum protection during LLM coding sessions, elevate all rules to errors:
-
-```json
-{
-  "minSeverity": "warning",
-  "rules": {
-    "SW001": { "enabled": true, "severity": "error" },
-    "SW002": { "enabled": true, "severity": "error" },
-    "SW003": { "enabled": true, "severity": "error" },
-    "SW004": { "enabled": true, "severity": "error" },
-    "SW005": { "enabled": true, "severity": "error" },
-    "SW006": { "enabled": true, "severity": "error" }
-  }
-}
-```
-
----
-
 ## The Philosophy: Zero Tolerance for New Slop
 
 1. **Baseline captures legacy** - Existing issues are acknowledged but isolated
 2. **New slop is blocked** - Any new shortcut fails the build/edit
 3. **Exceptions require justification** - If you must update baseline, document why
 4. **LLMs are not special** - The same rules apply to human and AI-generated code
-
-The goal is to prevent the gradual accumulation of technical debt that occurs when LLMs optimize for "make the test pass" rather than "fix the actual problem."
 
 ---
 
@@ -295,6 +287,9 @@ slopwatch analyze --update-baseline
 
 # JSON output for tooling
 slopwatch analyze --output json
+
+# Hook mode (for Claude Code integration)
+slopwatch analyze -d . --hook
 ```
 
 ---
@@ -315,3 +310,19 @@ The only valid reasons to update baseline or disable a rule:
 - "The warning is annoying" → Fix the code
 - "It works on my machine" → Fix the race condition
 - "We'll fix it later" → Fix it now
+
+---
+
+## Agent Gotchas
+
+- **Do not suppress slopwatch findings.** If slopwatch flags an issue, fix the code.
+- **Run after every code change**, not just at the end.
+- **Use `--hook` flag in Claude Code hooks**, not bare `analyze`.
+- **Baseline is not a wastebasket.** Adding items requires documented justification.
+- **Local tool preferred over global.** Use `.config/dotnet-tools.json`.
+
+---
+
+## References
+
+- [Slopwatch NuGet Package](https://www.nuget.org/packages/Slopwatch.Cmd)

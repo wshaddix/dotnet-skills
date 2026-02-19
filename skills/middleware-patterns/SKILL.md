@@ -1,50 +1,102 @@
 ---
 name: middleware-patterns
-description: Custom middleware patterns for ASP.NET Core Razor Pages applications. Covers request/response pipeline, middleware ordering, conditional middleware, and reusable middleware components. Use when creating custom middleware in ASP.NET Core applications, understanding middleware pipeline ordering, or implementing cross-cutting concerns like logging, authentication, and caching.
+description: Custom middleware patterns for ASP.NET Core applications. Covers request/response pipeline, middleware ordering, conditional middleware, IMiddleware factory pattern, IExceptionHandler (.NET 8+), and reusable middleware components. Use when creating custom middleware in ASP.NET Core applications, understanding middleware pipeline ordering, or implementing cross-cutting concerns like logging, authentication, and caching.
 ---
 
-You are a senior ASP.NET Core architect specializing in middleware development. When building custom middleware for Razor Pages applications, apply these patterns to create reusable, testable, and well-ordered pipeline components. Target .NET 8+ with nullable reference types enabled.
+# ASP.NET Core Middleware Patterns
 
 ## Rationale
 
 Middleware is the backbone of ASP.NET Core request processing. Properly designed middleware enables cross-cutting concerns like logging, authentication, and caching. Understanding the pipeline order and middleware patterns is critical for building robust applications.
 
-## Middleware Pipeline Order
+---
 
-The order of middleware registration matters significantly:
+## Pipeline Ordering
 
-```
-1. Exception Handler (catches all errors)
-2. HTTPS Redirection (before any sensitive data)
-3. Static Files (short-circuits pipeline for files)
-4. Routing (determines endpoint)
-5. Authentication (who are you?)
-6. Authorization (what can you do?)
-7. Custom Middleware (operates on authenticated requests)
-8. Endpoints (Razor Pages, API controllers)
-```
+Middleware executes in the order it is registered. The order is critical -- placing middleware in the wrong position causes subtle bugs.
 
-## Pattern 1: Basic Middleware Structure
+### Recommended Order
 
 ```csharp
-public class RequestTimingMiddleware(RequestDelegate next, ILogger<RequestTimingMiddleware> logger)
+var app = builder.Build();
+
+// 1. Exception handling (outermost -- catches everything below)
+app.UseExceptionHandler("/error");
+
+// 2. HSTS (before any response is sent)
+if (!app.Environment.IsDevelopment())
 {
-    public async Task Invoke(HttpContext context)
+    app.UseHsts();
+}
+
+// 3. HTTPS redirection
+app.UseHttpsRedirection();
+
+// 4. Static files (short-circuits for static content before routing)
+app.UseStaticFiles();
+
+// 5. Routing (matches endpoints but does not execute them yet)
+app.UseRouting();
+
+// 6. CORS (must be after routing, before auth)
+app.UseCors();
+
+// 7. Authentication (identifies the user)
+app.UseAuthentication();
+
+// 8. Authorization (checks permissions against the matched endpoint)
+app.UseAuthorization();
+
+// 9. Custom middleware (runs after auth, before endpoint execution)
+app.UseRequestLogging();
+
+// 10. Endpoint execution (terminal -- executes the matched endpoint)
+app.MapControllers();
+app.MapRazorPages();
+```
+
+### Why Order Matters
+
+| Mistake | Consequence |
+|---------|-------------|
+| `UseAuthorization()` before `UseRouting()` | Authorization has no endpoint metadata -- all requests pass |
+| `UseCors()` after `UseAuthorization()` | Preflight requests fail because they lack auth tokens |
+| `UseExceptionHandler()` after custom middleware | Exceptions in custom middleware are unhandled |
+| `UseStaticFiles()` after `UseAuthorization()` | Static files require authentication unnecessarily |
+
+---
+
+## Pattern 1: Convention-Based Middleware
+
+Convention-based middleware uses a constructor with `RequestDelegate` and an `InvokeAsync` method.
+
+```csharp
+public sealed class RequestTimingMiddleware
+{
+    private readonly RequestDelegate _next;
+    private readonly ILogger<RequestTimingMiddleware> _logger;
+
+    public RequestTimingMiddleware(
+        RequestDelegate next,
+        ILogger<RequestTimingMiddleware> logger)
+    {
+        _next = next;
+        _logger = logger;
+    }
+
+    public async Task InvokeAsync(HttpContext context)
     {
         var stopwatch = Stopwatch.StartNew();
-        logger.LogInformation("Request {Method} {Path} started", 
-            context.Request.Method, 
-            context.Request.Path);
 
         try
         {
-            await next(context);
+            await _next(context);
         }
         finally
         {
             stopwatch.Stop();
-            logger.LogInformation(
-                "Request {Method} {Path} completed in {ElapsedMs}ms - Status {StatusCode}",
+            _logger.LogInformation(
+                "Request {Method} {Path} completed in {ElapsedMs}ms with status {StatusCode}",
                 context.Request.Method,
                 context.Request.Path,
                 stopwatch.ElapsedMilliseconds,
@@ -53,113 +105,371 @@ public class RequestTimingMiddleware(RequestDelegate next, ILogger<RequestTiming
     }
 }
 
-// Extension method for clean registration
-public static class RequestTimingExtensions
+public static class RequestTimingMiddlewareExtensions
 {
     public static IApplicationBuilder UseRequestTiming(this IApplicationBuilder app)
-    {
-        return app.UseMiddleware<RequestTimingMiddleware>();
-    }
+        => app.UseMiddleware<RequestTimingMiddleware>();
 }
 
 // Usage in Program.cs
-var app = builder.Build();
 app.UseRequestTiming();
 ```
 
-## Pattern 2: Convention-Based Middleware
+---
 
-ASP.NET Core 8+ supports convention-based middleware with minimal code.
+## Pattern 2: Factory-Based (IMiddleware)
+
+For middleware that requires scoped services, implement `IMiddleware`. This uses DI to create middleware instances per-request:
 
 ```csharp
-public class ApiKeyMiddleware(RequestDelegate next, IConfiguration config)
+public sealed class TenantMiddleware : IMiddleware
 {
-    private const string ApiKeyHeader = "X-API-Key";
-    
-    public async Task Invoke(HttpContext context)
-    {
-        if (!context.Request.Headers.TryGetValue(ApiKeyHeader, out var apiKey))
-        {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            await context.Response.WriteAsync("API Key is missing");
-            return;
-        }
+    private readonly TenantDbContext _db;
 
-        var validKey = config["ApiKey"];
-        if (apiKey != validKey)
+    public TenantMiddleware(TenantDbContext db)
+    {
+        _db = db;
+    }
+
+    public async Task InvokeAsync(HttpContext context, RequestDelegate next)
+    {
+        var tenantId = context.Request.Headers["X-Tenant-Id"].FirstOrDefault();
+
+        if (tenantId is not null)
         {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            await context.Response.WriteAsync("Invalid API Key");
-            return;
+            var tenant = await _db.Tenants.FindAsync(tenantId);
+            context.Items["Tenant"] = tenant;
         }
 
         await next(context);
     }
 }
 
-// Inline middleware (for simple cases)
+// IMiddleware requires explicit DI registration
+builder.Services.AddScoped<TenantMiddleware>();
+app.UseMiddleware<TenantMiddleware>();
+```
+
+### Convention-Based vs IMiddleware
+
+| Aspect | Convention-based | `IMiddleware` |
+|--------|-----------------|---------------|
+| Lifetime | Singleton (created once) | Per-request (from DI) |
+| Scoped services | Via `InvokeAsync` parameters only | Via constructor injection |
+| Registration | `UseMiddleware<T>()` only | Requires `services.Add*<T>()` + `UseMiddleware<T>()` |
+| Performance | Slightly faster | Resolved from DI each request |
+
+---
+
+## Pattern 3: Inline Middleware
+
+For simple, one-off logic:
+
+### app.Use -- Pass-Through
+
+```csharp
 app.Use(async (context, next) =>
 {
-    // Before request
-    logger.LogInformation("Processing request...");
-    
-    await next();
-    
-    // After request
-    logger.LogInformation("Request processed with status {Status}", 
-        context.Response.StatusCode);
+    context.Response.Headers["X-Request-Id"] = context.TraceIdentifier;
+    await next(context);
 });
 ```
 
-## Pattern 3: Conditional Middleware
-
-Apply middleware only to specific routes or conditions.
+### app.Run -- Terminal
 
 ```csharp
-public class MaintenanceModeMiddleware(RequestDelegate next, IConfiguration config)
+app.Run(async context =>
 {
-    public async Task Invoke(HttpContext context)
-    {
-        var isMaintenanceMode = config.GetValue<bool>("MaintenanceMode:Enabled");
-        var allowedIps = config.GetSection("MaintenanceMode:AllowedIps").Get<string[]>() ?? Array.Empty<string>();
-        var requestIp = context.Connection.RemoteIpAddress?.ToString();
+    await context.Response.WriteAsync("Fallback response");
+});
+```
 
-        if (isMaintenanceMode && !allowedIps.Contains(requestIp))
+### app.Map -- Branch by Path
+
+```csharp
+app.Map("/api/diagnostics", diagnosticApp =>
+{
+    diagnosticApp.Run(async context =>
+    {
+        var data = new
         {
-            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-            context.Response.Headers["Retry-After"] = "3600";
-            await context.Response.WriteAsync("Service is under maintenance");
-            return;
+            MachineName = Environment.MachineName,
+            Timestamp = DateTimeOffset.UtcNow
+        };
+        await context.Response.WriteAsJsonAsync(data);
+    });
+});
+```
+
+---
+
+## Pattern 4: Short-Circuit Logic
+
+Middleware can short-circuit the pipeline by not calling `next()`.
+
+### Request Validation
+
+```csharp
+public sealed class ApiKeyMiddleware
+{
+    private readonly RequestDelegate _next;
+    private readonly string _expectedKey;
+
+    public ApiKeyMiddleware(RequestDelegate next, IConfiguration config)
+    {
+        _next = next;
+        _expectedKey = config["ApiKey"]
+            ?? throw new InvalidOperationException("ApiKey configuration is required");
+    }
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        if (!context.Request.Headers.TryGetValue("X-Api-Key", out var providedKey)
+            || !string.Equals(providedKey, _expectedKey, StringComparison.Ordinal))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                Error = "Invalid or missing API key"
+            });
+            return; // Short-circuit
         }
 
-        await next(context);
+        await _next(context);
     }
 }
+```
 
-// Conditional registration using MapWhen
-app.MapWhen(
-    context => context.Request.Path.StartsWithSegments("/api"),
-    apiApp =>
-    {
-        apiApp.UseApiKeyValidation();
-        apiApp.UseRateLimiting();
-    });
+### Feature Flag Gate
 
-// Conditional registration using UseWhen (rejoins main pipeline)
+```csharp
 app.UseWhen(
-    context => context.Request.Path.StartsWithSegments("/admin"),
-    adminApp =>
+    context => context.Request.Path.StartsWithSegments("/beta"),
+    betaApp =>
     {
-        adminApp.UseMiddleware<AdminAuditMiddleware>();
+        betaApp.Use(async (context, next) =>
+        {
+            var featureManager = context.RequestServices
+                .GetRequiredService<IFeatureManager>();
+
+            if (!await featureManager.IsEnabledAsync("BetaFeatures"))
+            {
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            }
+
+            await next(context);
+        });
     });
 ```
 
-## Pattern 4: Branching Middleware
+---
 
-Create completely separate pipelines for different route prefixes.
+## Pattern 5: Request and Response Manipulation
+
+### Reading the Request Body
 
 ```csharp
-// Branch for API routes
+public sealed class RequestLoggingMiddleware
+{
+    private readonly RequestDelegate _next;
+    private readonly ILogger<RequestLoggingMiddleware> _logger;
+
+    public RequestLoggingMiddleware(RequestDelegate next, ILogger<RequestLoggingMiddleware> logger)
+    {
+        _next = next;
+        _logger = logger;
+    }
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        context.Request.EnableBuffering();
+
+        if (context.Request.ContentLength > 0 && context.Request.ContentLength < 64_000)
+        {
+            context.Request.Body.Position = 0;
+            using var reader = new StreamReader(context.Request.Body, leaveOpen: true);
+            var body = await reader.ReadToEndAsync();
+            _logger.LogDebug("Request body for {Path}: {Body}", context.Request.Path, body);
+            context.Request.Body.Position = 0;
+        }
+
+        await _next(context);
+    }
+}
+```
+
+### Modifying the Response
+
+```csharp
+public async Task InvokeAsync(HttpContext context)
+{
+    var originalBodyStream = context.Response.Body;
+
+    using var responseBody = new MemoryStream();
+    context.Response.Body = responseBody;
+
+    await _next(context);
+
+    context.Response.Body.Seek(0, SeekOrigin.Begin);
+    var responseText = await new StreamReader(context.Response.Body).ReadToEndAsync();
+    context.Response.Body.Seek(0, SeekOrigin.Begin);
+
+    await responseBody.CopyToAsync(originalBodyStream);
+}
+```
+
+**Caution:** Response body replacement adds memory overhead. Use only for diagnostics.
+
+---
+
+## Pattern 6: Exception Handling Middleware
+
+### Built-in Exception Handler
+
+```csharp
+app.UseExceptionHandler(exceptionApp =>
+{
+    exceptionApp.Run(async context =>
+    {
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/json";
+
+        var exceptionFeature = context.Features.Get<IExceptionHandlerFeature>();
+
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        logger.LogError(exceptionFeature?.Error, "Unhandled exception for {Path}", context.Request.Path);
+
+        await context.Response.WriteAsJsonAsync(new
+        {
+            Error = "An internal error occurred",
+            TraceId = context.TraceIdentifier
+        });
+    });
+});
+```
+
+### IExceptionHandler (.NET 8+)
+
+Multiple handlers can be registered and are invoked in order:
+
+```csharp
+public sealed class ValidationExceptionHandler : IExceptionHandler
+{
+    public async ValueTask<bool> TryHandleAsync(
+        HttpContext context,
+        Exception exception,
+        CancellationToken ct)
+    {
+        if (exception is not ValidationException validationException)
+            return false;
+
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            Error = "Validation failed",
+            Details = validationException.Errors
+        }, ct);
+
+        return true;
+    }
+}
+
+public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IExceptionHandler
+{
+    public async ValueTask<bool> TryHandleAsync(
+        HttpContext context,
+        Exception exception,
+        CancellationToken ct)
+    {
+        logger.LogError(exception, "Unhandled exception");
+
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            Error = "An internal error occurred",
+            TraceId = context.TraceIdentifier
+        }, ct);
+
+        return true;
+    }
+}
+
+builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddProblemDetails();
+
+app.UseExceptionHandler();
+```
+
+### StatusCodePages for Non-Exception Errors
+
+```csharp
+app.UseStatusCodePagesWithReExecute("/error/{0}");
+
+app.UseStatusCodePages(async context =>
+{
+    context.HttpContext.Response.ContentType = "application/json";
+    await context.HttpContext.Response.WriteAsJsonAsync(new
+    {
+        Error = $"HTTP {context.HttpContext.Response.StatusCode}",
+        TraceId = context.HttpContext.TraceIdentifier
+    });
+});
+```
+
+---
+
+## Pattern 7: Conditional Middleware
+
+### UseWhen -- Conditional Branch (Rejoins Pipeline)
+
+```csharp
+app.UseWhen(
+    context => context.Request.Path.StartsWithSegments("/api"),
+    apiApp =>
+    {
+        apiApp.UseRateLimiter();
+    });
+```
+
+### MapWhen -- Conditional Branch (Does Not Rejoin)
+
+```csharp
+app.MapWhen(
+    context => context.WebSockets.IsWebSocketRequest,
+    wsApp =>
+    {
+        wsApp.Run(async context =>
+        {
+            using var ws = await context.WebSockets.AcceptWebSocketAsync();
+        });
+    });
+```
+
+### Environment-Specific Middleware
+
+```csharp
+if (app.Environment.IsDevelopment())
+{
+    app.UseDeveloperExceptionPage();
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+else
+{
+    app.UseExceptionHandler("/error");
+    app.UseHsts();
+}
+```
+
+---
+
+## Pattern 8: Branching Middleware
+
+Create completely separate pipelines for different route prefixes:
+
+```csharp
 app.Map("/api", apiApp =>
 {
     apiApp.UseExceptionHandler("/api/error");
@@ -170,7 +480,6 @@ app.Map("/api", apiApp =>
     apiApp.MapControllers();
 });
 
-// Branch for webhook routes (different auth)
 app.Map("/webhooks", webhookApp =>
 {
     webhookApp.UseMiddleware<WebhookSignatureValidation>();
@@ -178,7 +487,6 @@ app.Map("/webhooks", webhookApp =>
     webhookApp.MapRazorPages();
 });
 
-// Main application pipeline
 app.UseExceptionHandler("/Error");
 app.UseHttpsRedirection();
 app.UseStaticFiles();
@@ -188,61 +496,9 @@ app.UseAuthorization();
 app.MapRazorPages();
 ```
 
-## Pattern 5: Request/Response Interception
+---
 
-Middleware can intercept and modify both requests and responses.
-
-```csharp
-public class ResponseCompressionMiddleware(RequestDelegate next)
-{
-    public async Task Invoke(HttpContext context)
-    {
-        var originalBody = context.Response.Body;
-
-        try
-        {
-            using var memoryStream = new MemoryStream();
-            context.Response.Body = memoryStream;
-
-            await next(context);
-
-            // Check if client accepts compression
-            if (context.Request.Headers.AcceptEncoding.Contains("gzip") &&
-                ShouldCompress(context.Response.ContentType))
-            {
-                context.Response.Headers.ContentEncoding = "gzip";
-                
-                memoryStream.Position = 0;
-                await using var compressedStream = new GZipStream(originalBody, CompressionMode.Compress);
-                await memoryStream.CopyToAsync(compressedStream);
-            }
-            else
-            {
-                memoryStream.Position = 0;
-                await memoryStream.CopyToAsync(originalBody);
-            }
-        }
-        finally
-        {
-            context.Response.Body = originalBody;
-        }
-    }
-
-    private static bool ShouldCompress(string? contentType)
-    {
-        if (string.IsNullOrEmpty(contentType)) return false;
-        
-        return contentType.Contains("text/") ||
-               contentType.Contains("application/json") ||
-               contentType.Contains("application/javascript") ||
-               contentType.Contains("application/xml");
-    }
-}
-```
-
-## Pattern 6: Middleware with Options
-
-Pass configuration to middleware via Options pattern.
+## Pattern 9: Middleware with Options
 
 ```csharp
 public class RateLimitingMiddlewareOptions
@@ -252,7 +508,10 @@ public class RateLimitingMiddlewareOptions
     public TimeSpan BlockDuration { get; set; } = TimeSpan.FromMinutes(1);
 }
 
-public class RateLimitingMiddleware(RequestDelegate next, IOptions<RateLimitingMiddlewareOptions> options, IMemoryCache cache)
+public class RateLimitingMiddleware(
+    RequestDelegate next,
+    IOptions<RateLimitingMiddlewareOptions> options,
+    IMemoryCache cache)
 {
     private readonly RateLimitingMiddlewareOptions _options = options.Value;
 
@@ -274,20 +533,14 @@ public class RateLimitingMiddleware(RequestDelegate next, IOptions<RateLimitingM
 
     private string GetClientIdentifier(HttpContext context)
     {
-        return context.User.Identity?.Name ?? 
-               context.Connection.RemoteIpAddress?.ToString() ?? 
+        return context.User.Identity?.Name ??
+               context.Connection.RemoteIpAddress?.ToString() ??
                "anonymous";
     }
 
-    private async Task<bool> TryAcquireTokenAsync(string cacheKey)
-    {
-        // Token bucket algorithm implementation
-        // ... implementation details
-        return true;
-    }
+    private async Task<bool> TryAcquireTokenAsync(string cacheKey) => true;
 }
 
-// Registration with options
 builder.Services.Configure<RateLimitingMiddlewareOptions>(options =>
 {
     options.MaxRequestsPerSecond = 5;
@@ -297,69 +550,9 @@ builder.Services.Configure<RateLimitingMiddlewareOptions>(options =>
 app.UseMiddleware<RateLimitingMiddleware>();
 ```
 
-## Pattern 7: Middleware Ordering Helper
+---
 
-Create an extension method that enforces proper middleware order.
-
-```csharp
-public static class MiddlewarePipelineExtensions
-{
-    public static IApplicationBuilder UseStandardPipeline(this IApplicationBuilder app, IWebHostEnvironment env)
-    {
-        // 1. Exception handling (first to catch all errors)
-        if (env.IsDevelopment())
-        {
-            app.UseDeveloperExceptionPage();
-        }
-        else
-        {
-            app.UseExceptionHandler("/Error");
-            app.UseHsts();
-        }
-
-        // 2. Security headers (before any content)
-        app.UseSecurityHeaders();
-
-        // 3. HTTPS redirection
-        app.UseHttpsRedirection();
-
-        // 4. Static files (may short-circuit)
-        app.UseStaticFiles();
-
-        // 5. Routing
-        app.UseRouting();
-
-        // 6. Request logging with correlation
-        app.UseRequestContextLogging();
-
-        // 7. Authentication
-        app.UseAuthentication();
-
-        // 8. Authorization
-        app.UseAuthorization();
-
-        // 9. Custom middleware (after auth)
-        app.UseRequestTiming();
-
-        // 10. Endpoints (last)
-        app.UseEndpoints(endpoints =>
-        {
-            endpoints.MapRazorPages();
-            endpoints.MapHealthChecks("/up");
-        });
-
-        return app;
-    }
-}
-
-// Usage
-var app = builder.Build();
-app.UseStandardPipeline(builder.Environment);
-```
-
-## Pattern 8: Middleware Testing
-
-Test middleware components in isolation.
+## Pattern 10: Middleware Testing
 
 ```csharp
 public class MiddlewareTests
@@ -367,19 +560,15 @@ public class MiddlewareTests
     [Fact]
     public async Task SecurityHeadersMiddleware_AddsRequiredHeaders()
     {
-        // Arrange
         var middleware = new SecurityHeadersMiddleware(async (context) =>
         {
-            // Simulate next middleware
             await Task.CompletedTask;
         });
 
         var context = new DefaultHttpContext();
 
-        // Act
         await middleware.Invoke(context);
 
-        // Assert
         Assert.Equal("nosniff", context.Response.Headers["X-Content-Type-Options"].ToString());
         Assert.Equal("DENY", context.Response.Headers["X-Frame-Options"].ToString());
     }
@@ -387,7 +576,6 @@ public class MiddlewareTests
     [Fact]
     public async Task ApiKeyMiddleware_Returns401_WhenKeyMissing()
     {
-        // Arrange
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new[] { new KeyValuePair<string, string?>("ApiKey", "test-key") })
             .Build();
@@ -400,141 +588,54 @@ public class MiddlewareTests
         var context = new DefaultHttpContext();
         context.Response.Body = new MemoryStream();
 
-        // Act
         await middleware.Invoke(context);
 
-        // Assert
         Assert.Equal(401, context.Response.StatusCode);
     }
 }
 ```
 
-## Pattern 9: Endpoint-Specific Middleware
-
-Apply middleware only to specific endpoints.
-
-```csharp
-// Using endpoint filters (Razor Pages .NET 8+)
-app.MapRazorPages()
-   .AddEndpointFilter(async (context, next) =>
-   {
-       // Runs for all Razor Pages
-       logger.LogInformation("Executing Razor Page: {Page}", 
-           context.HttpContext.Request.Path);
-       
-       return await next(context);
-   });
-
-// Conditional endpoint filters
-public class AdminOnlyFilter : IEndpointFilter
-{
-    public async ValueTask<object?> InvokeAsync(
-        EndpointFilterInvocationContext context,
-        EndpointFilterDelegate next)
-    {
-        if (!context.HttpContext.User.IsInRole("Admin"))
-        {
-            return Results.Forbid();
-        }
-
-        return await next(context);
-    }
-}
-
-// Usage
-app.MapGet("/admin/dashboard", () => Results.Ok())
-   .AddEndpointFilter<AdminOnlyFilter>();
-```
-
-## Pattern 10: Middleware Factory Pattern
-
-For middleware that needs scoped services, use IMiddleware.
-
-```csharp
-public class TransactionMiddleware : IMiddleware
-{
-    private readonly AppDbContext _dbContext;
-    private readonly ILogger<TransactionMiddleware> _logger;
-
-    public TransactionMiddleware(AppDbContext dbContext, ILogger<TransactionMiddleware> logger)
-    {
-        _dbContext = dbContext;
-        _logger = logger;
-    }
-
-    public async Task InvokeAsync(HttpContext context, RequestDelegate next)
-    {
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync();
-
-        try
-        {
-            await next(context);
-            
-            if (context.Response.StatusCode < 400)
-            {
-                await transaction.CommitAsync();
-            }
-            else
-            {
-                await transaction.RollbackAsync();
-            }
-        }
-        catch
-        {
-            await transaction.RollbackAsync();
-            throw;
-        }
-    }
-}
-
-// Registration (required for IMiddleware)
-builder.Services.AddScoped<TransactionMiddleware>();
-app.UseMiddleware<TransactionMiddleware>();
-```
+---
 
 ## Anti-Patterns
 
 ### Calling Next After Response Started
 
 ```csharp
-// ❌ BAD: Calling next after response has started
+// BAD: Calling next after response has started
 public async Task Invoke(HttpContext context)
 {
     await context.Response.WriteAsync("Before");
-    await next(context); // May fail or cause issues
+    await next(context); // May fail
     await context.Response.WriteAsync("After"); // Won't work
 }
 
-// ✅ GOOD: Only modify response before calling next
+// GOOD: Only modify response before calling next
 public async Task Invoke(HttpContext context)
 {
-    // Setup before
     var originalBody = context.Response.Body;
     context.Response.Body = new MemoryStream();
-    
+
     await next(context);
-    
-    // Process after
+
     context.Response.Body.Position = 0;
-    // ... process body ...
+    await context.Response.Body.CopyToAsync(originalBody);
 }
 ```
 
 ### Not Restoring Context
 
 ```csharp
-// ❌ BAD: Not restoring HttpContext state
+// BAD: Not restoring HttpContext state
 public async Task Invoke(HttpContext context)
 {
     var originalUser = context.User;
-    context.User = new ClaimsPrincipal(); // Temporarily change user
-    
+    context.User = new ClaimsPrincipal();
     await next(context);
-    
     // Missing: context.User = originalUser;
 }
 
-// ✅ GOOD: Always restore state
+// GOOD: Always restore state
 public async Task Invoke(HttpContext context)
 {
     var originalUser = context.User;
@@ -550,33 +651,35 @@ public async Task Invoke(HttpContext context)
 }
 ```
 
-### Long-Running Operations in Middleware
+---
 
-```csharp
-// ❌ BAD: Blocking the pipeline
-public async Task Invoke(HttpContext context)
-{
-    var data = await _service.FetchDataAsync(); // 30 seconds!
-    context.Items["Data"] = data;
-    await next(context);
-}
+## Key Principles
 
-// ✅ GOOD: Move long operations to background or endpoint
-public async Task Invoke(HttpContext context)
-{
-    // Quick validation only
-    if (!context.Request.Headers.ContainsKey("X-Required-Header"))
-    {
-        context.Response.StatusCode = 400;
-        return;
-    }
-    
-    await next(context);
-}
-```
+- **Order is everything** -- middleware executes top-to-bottom for requests and bottom-to-top for responses
+- **Exception handler goes first** -- `UseExceptionHandler` must be outermost
+- **Prefer classes over inline for reusable middleware** -- testable, composable, single-responsibility
+- **Use `IMiddleware` for scoped dependencies** -- convention-based is singleton
+- **Short-circuit intentionally** -- always document why a middleware does not call `next()`
+- **Avoid response body manipulation in hot paths** -- doubles memory usage per request
+
+---
+
+## Agent Gotchas
+
+1. **Do not place `UseAuthorization()` before `UseRouting()`** -- authorization requires endpoint metadata.
+2. **Do not place `UseCors()` after `UseAuthorization()`** -- CORS preflight requests lack auth tokens.
+3. **Do not forget to call `next()` in pass-through middleware** -- silently short-circuits the pipeline.
+4. **Do not read `Request.Body` without `EnableBuffering()`** -- the body is forward-only by default.
+5. **Do not register `IMiddleware` without DI registration** -- requires explicit `services.AddScoped<T>()`.
+6. **Do not write to `Response.Body` after calling `next()` if downstream has started response** -- check `context.Response.HasStarted`.
+
+---
 
 ## References
 
-- ASP.NET Core Middleware: https://learn.microsoft.com/en-us/aspnet/core/fundamentals/middleware/
-- Middleware Ordering: https://learn.microsoft.com/en-us/aspnet/core/fundamentals/middleware/
-- Factory-Based Middleware: https://learn.microsoft.com/en-us/aspnet/core/fundamentals/middleware/extensibility
+- [ASP.NET Core middleware](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/middleware/)
+- [Write custom ASP.NET Core middleware](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/middleware/write)
+- [Factory-based middleware activation](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/middleware/extensibility)
+- [Handle errors in ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/error-handling)
+- [IExceptionHandler in .NET 8](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/error-handling#iexceptionhandler)
+- [Exploring ASP.NET Core (Andrew Lock)](https://andrewlock.net/)

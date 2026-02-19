@@ -1,79 +1,181 @@
 ---
 name: background-services
-description: Hosted services, background jobs, outbox patterns, and graceful shutdown handling for ASP.NET Core applications. Includes patterns for reliable job processing and distributed systems. Use when implementing background processing in ASP.NET Core applications, handling outbox patterns for reliable message delivery, or managing graceful service shutdown.
+description: Hosted services, background jobs, outbox patterns, and graceful shutdown handling for ASP.NET Core applications. Includes patterns for reliable job processing, distributed systems, and lifecycle management. Use when implementing background processing in ASP.NET Core applications, handling outbox patterns for reliable message delivery, or managing graceful service shutdown.
 ---
+
+# Background Services in ASP.NET Core
 
 ## Rationale
 
 Background services are essential for offloading work from the request pipeline, processing queues, and handling scheduled tasks. Poorly implemented background services can lead to data loss, orphaned jobs, and resource leaks. These patterns ensure reliable, observable, and gracefully degrading background processing in production applications.
 
-## Patterns
+---
 
-### Pattern 1: Basic Hosted Service Structure
+## BackgroundService vs IHostedService
+
+| Feature | `BackgroundService` | `IHostedService` |
+|---------|-------------------|-----------------|
+| Purpose | Long-running loop or continuous work | Startup/shutdown hooks |
+| Methods | Override `ExecuteAsync` | Implement `StartAsync` + `StopAsync` |
+| Lifetime | Runs until cancellation or host shutdown | `StartAsync` runs at startup, `StopAsync` at shutdown |
+| Use when | Polling queues, processing streams, periodic jobs | Database migrations, cache warming, resource cleanup |
+
+---
+
+## Pattern 1: Basic BackgroundService Structure
 
 Use `BackgroundService` base class for consistent lifecycle management and cancellation support.
 
 ```csharp
-public class NotificationProcessor : BackgroundService
+public sealed class OrderProcessorWorker(
+    IServiceScopeFactory scopeFactory,
+    ILogger<OrderProcessorWorker> logger) : BackgroundService
 {
-    private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<NotificationProcessor> _logger;
-
-    public NotificationProcessor(
-        IServiceProvider serviceProvider,
-        ILogger<NotificationProcessor> logger)
-    {
-        _serviceProvider = serviceProvider;
-        _logger = logger;
-    }
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Notification processor starting...");
+        logger.LogInformation("Order processor started");
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                await using var scope = _serviceProvider.CreateAsyncScope();
-                var queueService = scope.ServiceProvider.GetRequiredService<INotificationQueue>();
+                using var scope = scopeFactory.CreateScope();
+                var processor = scope.ServiceProvider
+                    .GetRequiredService<IOrderProcessor>();
 
-                var notification = await queueService.DequeueAsync(stoppingToken);
-                if (notification is not null)
-                {
-                    await ProcessNotificationAsync(notification, stoppingToken);
-                }
-                else
+                var processed = await processor.ProcessPendingAsync(stoppingToken);
+
+                if (processed == 0)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
                 }
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
-                _logger.LogInformation("Notification processor stopping...");
                 break;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing notification");
-                await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+                logger.LogError(ex, "Error processing orders");
+                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
             }
+        }
+
+        logger.LogInformation("Order processor stopped");
+    }
+}
+
+// Registration
+builder.Services.AddHostedService<OrderProcessorWorker>();
+```
+
+### Critical Rules for BackgroundService
+
+1. **Always create scopes** -- `BackgroundService` is registered as a singleton. Inject `IServiceScopeFactory`, not scoped services directly.
+2. **Always handle exceptions** -- by default, unhandled exceptions in `ExecuteAsync` stop the host. Wrap the loop body in try/catch.
+3. **Always respect the stopping token** -- check `stoppingToken.IsCancellationRequested` and pass the token to all async calls.
+4. **Back off on empty/error** -- avoid tight polling loops that waste CPU. Use `Task.Delay` with the stopping token.
+
+---
+
+## Pattern 2: IHostedService for Startup/Shutdown Hooks
+
+### Startup Hook (Cache Warming, Migrations)
+
+```csharp
+public sealed class CacheWarmupService(
+    IServiceScopeFactory scopeFactory,
+    ILogger<CacheWarmupService> logger) : IHostedService
+{
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        logger.LogInformation("Warming caches");
+
+        using var scope = scopeFactory.CreateScope();
+        var cache = scope.ServiceProvider.GetRequiredService<IProductCache>();
+        await cache.WarmAsync(cancellationToken);
+
+        logger.LogInformation("Cache warmup complete");
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+}
+```
+
+### Startup + Shutdown (Resource Lifecycle)
+
+```csharp
+public sealed class MessageBusService(
+    ILogger<MessageBusService> logger) : IHostedService
+{
+    private IConnection? _connection;
+
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        logger.LogInformation("Connecting to message bus");
+        _connection = await CreateConnectionAsync(cancellationToken);
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        logger.LogInformation("Disconnecting from message bus");
+        if (_connection is not null)
+        {
+            await _connection.CloseAsync(cancellationToken);
+            _connection = null;
         }
     }
 
-    private async Task ProcessNotificationAsync(Notification notification, CancellationToken ct)
+    private static Task<IConnection> CreateConnectionAsync(CancellationToken ct) =>
+        throw new NotImplementedException();
+}
+```
+
+---
+
+## Pattern 3: Hosted Service Lifecycle
+
+### Startup Sequence
+
+1. `IHostedService.StartAsync` is called for each registered service **in registration order**
+2. `BackgroundService.ExecuteAsync` is called after `StartAsync` completes (it runs concurrently -- the host does not wait for it to finish)
+3. The host is ready to serve requests after all `StartAsync` calls complete
+
+**Important:** `ExecuteAsync` must not block before yielding to the caller. The first `await` in `ExecuteAsync` is where control returns to the host.
+
+```csharp
+public sealed class MyWorker : BackgroundService
+{
+    public override async Task StartAsync(CancellationToken cancellationToken)
     {
-        // Implementation
+        await InitializeAsync(cancellationToken);
+        await base.StartAsync(cancellationToken);
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            await DoWorkAsync(stoppingToken);
+        }
     }
 }
 ```
 
-### Pattern 2: Outbox Pattern for Reliable Messaging
+### Shutdown Sequence
+
+1. `IHostApplicationLifetime.ApplicationStopping` is triggered
+2. The host calls `StopAsync` on each hosted service **in reverse registration order**
+3. For `BackgroundService`, the stopping token is cancelled, then `StopAsync` waits for `ExecuteAsync` to complete
+4. `IHostApplicationLifetime.ApplicationStopped` is triggered
+
+---
+
+## Pattern 4: Outbox Pattern for Reliable Messaging
 
 Ensure messages are never lost by storing them in the database transactionally before async processing.
 
 ```csharp
-// Outbox entity
 public class OutboxMessage
 {
     public Guid Id { get; set; }
@@ -85,7 +187,6 @@ public class OutboxMessage
     public int RetryCount { get; set; }
 }
 
-// Repository pattern for outbox
 public interface IOutboxRepository
 {
     Task AddAsync(OutboxMessage message, CancellationToken ct = default);
@@ -94,7 +195,6 @@ public interface IOutboxRepository
     Task MarkFailedAsync(Guid messageId, string error, CancellationToken ct = default);
 }
 
-// During business operation - transactional
 public class OrderService
 {
     private readonly ApplicationDbContext _db;
@@ -106,11 +206,9 @@ public class OrderService
 
         try
         {
-            // Create order
-            var order = new Order { /* ... */ };
+            var order = new Order { };
             _db.Orders.Add(order);
 
-            // Add outbox message in same transaction
             var message = new OutboxMessage
             {
                 Id = Guid.NewGuid(),
@@ -137,7 +235,6 @@ public class OrderService
     }
 }
 
-// Background processor for outbox
 public class OutboxProcessor : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
@@ -185,7 +282,9 @@ public class OutboxProcessor : BackgroundService
 }
 ```
 
-### Pattern 3: Graceful Shutdown Handling
+---
+
+## Pattern 5: Graceful Shutdown Handling
 
 Implement `IHostedLifecycleService` for fine-grained control over startup and shutdown sequences.
 
@@ -207,7 +306,6 @@ public class GracefulWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Register shutdown handler
         _lifetime.ApplicationStopping.Register(() =>
         {
             _logger.LogInformation("Shutdown requested, draining work channel...");
@@ -222,7 +320,6 @@ public class GracefulWorker : BackgroundService
             catch (OperationCanceledException)
             {
                 _logger.LogWarning("Work item {WorkId} cancelled due to shutdown", workItem.Id);
-                // Re-queue or handle partial completion
                 throw;
             }
         }
@@ -232,23 +329,16 @@ public class GracefulWorker : BackgroundService
     {
         using var activity = new Activity("ProcessWorkItem").Start();
         _logger.LogInformation("Processing work item {WorkId}", item.Id);
-
-        // Simulate work
         await Task.Delay(item.Duration, ct);
-
         _logger.LogInformation("Completed work item {WorkId}", item.Id);
     }
 }
 
-// Advanced: IHostedLifecycleService for complex scenarios
 public class LifecycleAwareService : IHostedLifecycleService
 {
     private readonly ILogger<LifecycleAwareService> _logger;
 
-    public LifecycleAwareService(ILogger<LifecycleAwareService> logger)
-    {
-        _logger = logger;
-    }
+    public LifecycleAwareService(ILogger<LifecycleAwareService> logger) => _logger = logger;
 
     public Task StartingAsync(CancellationToken cancellationToken)
     {
@@ -288,7 +378,65 @@ public class LifecycleAwareService : IHostedLifecycleService
 }
 ```
 
-### Pattern 4: Scheduled Jobs with Cron Expressions
+### Host Shutdown Timeout
+
+```csharp
+builder.Services.Configure<HostOptions>(options =>
+{
+    options.ShutdownTimeout = TimeSpan.FromSeconds(60);
+});
+```
+
+---
+
+## Pattern 6: Channels Integration
+
+Channel-backed background task queue consumed by a `BackgroundService`:
+
+```csharp
+public sealed class BackgroundTaskQueue
+{
+    private readonly Channel<Func<IServiceProvider, CancellationToken, Task>> _queue
+        = Channel.CreateBounded<Func<IServiceProvider, CancellationToken, Task>>(
+            new BoundedChannelOptions(100) { FullMode = BoundedChannelFullMode.Wait });
+
+    public ChannelWriter<Func<IServiceProvider, CancellationToken, Task>> Writer => _queue.Writer;
+    public ChannelReader<Func<IServiceProvider, CancellationToken, Task>> Reader => _queue.Reader;
+}
+
+public sealed class QueueProcessorWorker(
+    BackgroundTaskQueue queue,
+    IServiceScopeFactory scopeFactory,
+    ILogger<QueueProcessorWorker> logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (await queue.Reader.WaitToReadAsync(stoppingToken))
+        {
+            while (queue.Reader.TryRead(out var workItem))
+            {
+                try
+                {
+                    using var scope = scopeFactory.CreateScope();
+                    await workItem(scope.ServiceProvider, stoppingToken);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error executing queued work item");
+                }
+            }
+        }
+    }
+}
+
+// Registration
+builder.Services.AddSingleton<BackgroundTaskQueue>();
+builder.Services.AddHostedService<QueueProcessorWorker>();
+```
+
+---
+
+## Pattern 7: Scheduled Jobs with Cron Expressions
 
 Use NCrontab for reliable cron-based scheduling without external dependencies.
 
@@ -304,7 +452,6 @@ public class ScheduledJobService : BackgroundService
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
-        // Run every day at 2 AM
         _schedule = CrontabSchedule.Parse("0 2 * * *");
         _nextRun = _schedule.GetNextOccurrence(DateTime.Now);
     }
@@ -342,14 +489,43 @@ public class ScheduledJobService : BackgroundService
         await service.GenerateDailyReportAsync(ct);
     }
 }
-
-// Configuration in Program.cs
-builder.Services.AddHostedService<ScheduledJobService>();
 ```
 
-### Pattern 5: Queue-Based Processing with Rate Limiting
+---
 
-Implement rate-limited background processing to prevent overwhelming downstream systems.
+## Pattern 8: Periodic Work with PeriodicTimer
+
+Use `PeriodicTimer` instead of `Task.Delay` for more accurate periodic execution:
+
+```csharp
+public sealed class HealthCheckReporter(
+    IServiceScopeFactory scopeFactory,
+    ILogger<HealthCheckReporter> logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+
+        while (await timer.WaitForNextTickAsync(stoppingToken))
+        {
+            try
+            {
+                using var scope = scopeFactory.CreateScope();
+                var reporter = scope.ServiceProvider.GetRequiredService<IHealthReporter>();
+                await reporter.ReportAsync(stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Health check report failed");
+            }
+        }
+    }
+}
+```
+
+---
+
+## Pattern 9: Queue-Based Processing with Rate Limiting
 
 ```csharp
 public class RateLimitedProcessor : BackgroundService
@@ -366,7 +542,7 @@ public class RateLimitedProcessor : BackgroundService
         _serviceProvider = serviceProvider;
         _logger = logger;
         _channel = Channel.CreateUnbounded<EmailRequest>();
-        _semaphore = new SemaphoreSlim(5, 5); // Max 5 concurrent
+        _semaphore = new SemaphoreSlim(5, 5);
     }
 
     public ChannelWriter<EmailRequest> Writer => _channel.Writer;
@@ -382,7 +558,6 @@ public class RateLimitedProcessor : BackgroundService
             var task = ProcessWithReleaseAsync(request, stoppingToken);
             processingTasks.Add(task);
 
-            // Clean up completed tasks periodically
             if (processingTasks.Count > 100)
             {
                 processingTasks.RemoveAll(t => t.IsCompleted);
@@ -417,52 +592,31 @@ public class RateLimitedProcessor : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send email to {Recipient}", request.To);
-            // Implement retry logic or dead letter queue
         }
 
-        // Rate limit: wait before next email
         await Task.Delay(TimeSpan.FromMilliseconds(100), ct);
-    }
-}
-
-// Registration
-builder.Services.AddSingleton<RateLimitedProcessor>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<RateLimitedProcessor>());
-
-// Usage in PageModel
-public class ContactModel : PageModel
-{
-    private readonly RateLimitedProcessor _processor;
-
-    public async Task<IActionResult> OnPostAsync()
-    {
-        await _processor.Writer.WriteAsync(new EmailRequest
-        {
-            To = Input.Email,
-            Subject = "Thank you for contacting us"
-        });
-
-        return RedirectToPage("/Contact/Success");
     }
 }
 ```
 
+---
+
 ## Anti-Patterns
 
 ```csharp
-// ❌ BAD: No cancellation token handling
+// BAD: No cancellation token handling
 public class BadProcessor : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (true) // Never stops!
         {
-            await DoWorkAsync(); // No cancellation
+            await DoWorkAsync();
         }
     }
 }
 
-// ✅ GOOD: Proper cancellation handling
+// GOOD: Proper cancellation handling
 public class GoodProcessor : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -475,7 +629,7 @@ public class GoodProcessor : BackgroundService
     }
 }
 
-// ❌ BAD: Swallowing all exceptions
+// BAD: Swallowing all exceptions
 protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 {
     while (!stoppingToken.IsCancellationRequested)
@@ -484,14 +638,14 @@ protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             await DoWorkAsync();
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Silently swallowed - service appears healthy but isn't working!
         }
     }
 }
 
-// ✅ GOOD: Log and continue with backoff
+// GOOD: Log and continue with backoff
 protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 {
     while (!stoppingToken.IsCancellationRequested)
@@ -502,7 +656,7 @@ protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         }
         catch (OperationCanceledException)
         {
-            break; // Expected during shutdown
+            break;
         }
         catch (Exception ex)
         {
@@ -512,7 +666,7 @@ protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     }
 }
 
-// ❌ BAD: Using scoped services without creating scope
+// BAD: Using scoped services without creating scope
 public class BadService : BackgroundService
 {
     private readonly ApplicationDbContext _db; // Scoped service in singleton!
@@ -525,7 +679,7 @@ public class BadService : BackgroundService
     }
 }
 
-// ✅ GOOD: Create scope for each unit of work
+// GOOD: Create scope for each unit of work
 public class GoodService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
@@ -540,7 +694,7 @@ public class GoodService : BackgroundService
     }
 }
 
-// ❌ BAD: Blocking async code
+// BAD: Blocking async code
 protected override Task ExecuteAsync(CancellationToken stoppingToken)
 {
     while (!stoppingToken.IsCancellationRequested)
@@ -550,7 +704,7 @@ protected override Task ExecuteAsync(CancellationToken stoppingToken)
     return Task.CompletedTask;
 }
 
-// ✅ GOOD: Use async/await throughout
+// GOOD: Use async/await throughout
 protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 {
     while (!stoppingToken.IsCancellationRequested)
@@ -560,10 +714,24 @@ protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 }
 ```
 
+---
+
+## Agent Gotchas
+
+1. **Do not inject scoped services into BackgroundService constructors** -- they are singletons. Always use `IServiceScopeFactory`.
+2. **Do not use `Task.Run` for background work** -- use `BackgroundService` for proper lifecycle management and graceful shutdown.
+3. **Do not swallow `OperationCanceledException`** -- let it propagate or re-check the stopping token.
+4. **Do not use `Thread.Sleep`** -- use `await Task.Delay(duration, stoppingToken)` or `PeriodicTimer`.
+5. **Do not forget to register** -- `AddHostedService<T>()` is required; merely implementing the interface does nothing.
+
+---
+
 ## References
 
-- [Hosted Services in ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/host/hosted-services)
-- [Background tasks with IHostedService](https://learn.microsoft.com/en-us/dotnet/architecture/microservices/multi-container-microservice-net-applications/background-tasks-with-ihostedservice)
-- [NCrontab](https://github.com/atifaziz/NCrontab) - Cron scheduling library
+- [Background tasks with hosted services](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/host/hosted-services)
+- [BackgroundService](https://learn.microsoft.com/en-us/dotnet/api/microsoft.extensions.hosting.backgroundservice)
+- [IHostedService interface](https://learn.microsoft.com/en-us/dotnet/api/microsoft.extensions.hosting.ihostedservice)
+- [Generic host shutdown](https://learn.microsoft.com/en-us/dotnet/core/extensions/generic-host#host-shutdown)
+- [PeriodicTimer](https://learn.microsoft.com/en-us/dotnet/api/system.threading.periodictimer)
 - [Outbox Pattern](https://microservices.io/patterns/data/transactional-outbox.html)
-- [Graceful Shutdown in .NET](https://learn.microsoft.com/en-us/dotnet/core/extensions/hosting)
+- [NCrontab](https://github.com/atifaziz/NCrontab)
