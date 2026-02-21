@@ -730,30 +730,6 @@ MyApp.Tests/
     OrderServiceTests.cs
 ```
 
-Use nested classes to group related scenarios:
-
-```csharp
-public class OrderServiceTests
-{
-    public class CreateOrder
-    {
-        [Test]
-        public async Task WithValidData_ReturnsOrder() { }
-
-        [Test]
-        public async Task WithMissingCustomer_ThrowsException() { }
-    }
-
-    public class CancelOrder
-    {
-        [Test]
-        public async Task WithPendingOrder_Succeeds() { }
-    }
-}
-```
-
----
-
 ## Common Mistakes
 
 ### Forgetting to Await Assertions
