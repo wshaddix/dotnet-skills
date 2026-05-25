@@ -469,13 +469,6 @@ verify accept
 verify accept --project tests/MyApp.Tests
 ```
 
-### CI Behavior
-
-```yaml
-env:
-  DiffEngine_Disabled: true
-```
-
 ---
 
 ## CI/CD Integration
